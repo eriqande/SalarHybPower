@@ -1,0 +1,8 @@
+---
+title: "Initial Data Maneuvers"
+output: html_notebook
+---
+
+
+Our first goal here is to check the data and see how many of the SNPs live on the
+linkage map somewhere.  Then
