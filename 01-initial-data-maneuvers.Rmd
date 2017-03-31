@@ -1,8 +1,74 @@
 ---
 title: "Initial Data Maneuvers"
-output: html_notebook
+output: 
+  html_notebook:
+    toc: true
 ---
 
 
 Our first goal here is to check the data and see how many of the SNPs live on the
-linkage map somewhere.  Then
+linkage map somewhere.  Then we will figure out what we do from there.
+
+Some libraries:
+```{r load-libs}
+library(tidyverse)
+library(stringr)
+```
+## Quick looking at the data
+
+First, grab the locus names out of the genotype files and put them in 
+some temporary files:
+```{sh loc-names}
+mkdir scratch
+gzcat data/NSaggregated_RAW.txt.gz | awk '$1 != "Pop" && NR>1 && NF==1' > scratch/ns_loci.txt  
+gzcat data/WestAgged_RAW.txt.gz | awk '$1 != "Pop" && NR>1 && NF==1' > scratch/west_loci.txt  
+```
+
+Then we can compare that to what we have in the two different files:
+```{r read-snp-dat}
+ns_snp <- read_table("scratch/ns_loci.txt", col_names = FALSE)
+west_snp <- read_table("scratch/west_loci.txt", col_names = FALSE)
+
+
+conv <- read_csv("data/Convert_220K_names_to_4.7K_Ilmn-Affy_CommonSNP.csv")
+
+# linkage map has some commas instead of periods for decimal points
+# so we need to fix that. (Also I had to edit the csv file (Mono in a numeric column))
+lmap <- read_csv("data/LinkageMap.csv",
+                 col_types = cols(`Female map` = col_character(),
+                                  `Male map` = col_double())) %>%
+  mutate(fem_map = as.numeric(str_replace(`Female map`, ",", ".")))
+
+# so these things don't overlap super well:
+dim(ns_snp)
+dim(west_snp)
+
+sum(ns_snp$X1 %in% lmap$SNP_ID)
+sum(ns_snp$X1 %in% c(lmap$SNP_ID, conv$`Illumina V2 ID`))
+
+sum(west_snp$X1 %in% lmap$SNP_ID)
+sum(west_snp$X1 %in% c(lmap$SNP_ID, conv$`Illumina V2 ID`))
+```
+
+So, we are a long way from having everything on the map.
+
+## Making a sex-averaged map, and then sprinkling the unknown SNPs amongst them
+
+So, here is what I am going to do, it is an exact science to be sure, but we are interested in
+seeing what sort of effects physical linkage might have.  I am OK with randomly sprinkling 
+SNPs around the genome and seeing what the effect is.
+
+### Sex-averaged recombination
+
+We will take a simple mean:
+```{r sex-ave}
+sex_aved <- lmap %>%
+  mutate(sex_ave_map = (fem_map + `Male map`) / 2)
+```
+
+### Placing unmapped markers in there
+
+So, for the markers that are not on there, for the purposes of simulation, I am just going
+to randomly intersperse them, and then interpolate the map distances, and pretend that is 
+the truth.  This is not right, of course, but it will be a good approximation.
+
