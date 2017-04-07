@@ -6,10 +6,33 @@ output:
 ---
 
 
-Our first goal here is to check the data and see how many of the SNPs live on the
-linkage map somewhere.  Then we will figure out what we do from there.
+## Intro/Overview
 
-Some libraries:
+In this document, we are getting the data that Brendan sent to me into a nice PLINK format.
+
+Along the way we are making a few assumptions, etc. Basically what we are doing is:
+
+1. Creating a sex-average recombination map from the linkage map we had.
+2. Randomly interspersing unmapped markers from the large SNP panels into positions 
+on the linkage map.  (This is obviously an approximation, but it is what I have done in
+order to simulate physical linkage).
+3. Turn those linkage map distances in cM into megabasesm, using 1 cM = 1 Mb.  I do this
+basically because I want to pass base pair coordinates to PLINK.  Markers that are in the exact
+same linkage block are just given serial base pair coordinates.
+4. Take all the data that are in Genepop format and put them into PLINK and create
+binary plink filesets that we will save in `intermediates/01`.
+5. The final products from all this are these files in `intermediates/01`:
+    ```
+binary-ns.bed      binary-ns.fam      binary-ns.nosex    binary-west.bim    binary-west.log
+binary-ns.bim      binary-ns.log      binary-west.bed    binary-west.fam    binary-west.nosex
+    ```
+I will commit these and all future analyses will start with those file.
+6. After making all those I just checked the names of the individuals in the files and confirmed that
+they looked correct.
+
+
+
+Some libraries
 ```{r load-libs}
 library(tidyverse)
 library(stringr)
@@ -19,15 +42,15 @@ library(stringr)
 First, grab the locus names out of the genotype files and put them in 
 some temporary files:
 ```{sh loc-names}
-mkdir scratch
-gzcat data/NSaggregated_RAW.txt.gz | awk '$1 != "Pop" && NR>1 && NF==1' > scratch/ns_loci.txt  
-gzcat data/WestAgged_RAW.txt.gz | awk '$1 != "Pop" && NR>1 && NF==1' > scratch/west_loci.txt  
+mkdir data/processed
+gzcat data/NSaggregated_RAW.txt.gz | awk '$1 != "Pop" && NR>1 && NF==1' > data/processed/ns_loci.txt  
+gzcat data/WestAgged_RAW.txt.gz | awk '$1 != "Pop" && NR>1 && NF==1' > data/processed/west_loci.txt  
 ```
 
 Then we can compare that to what we have in the two different files:
 ```{r read-snp-dat}
-ns_snp <- read_table("scratch/ns_loci.txt", col_names = FALSE)
-west_snp <- read_table("scratch/west_loci.txt", col_names = FALSE)
+ns_snp <- read_table("data/processed/ns_loci.txt", col_names = FALSE)
+west_snp <- read_table("data/processed/west_loci.txt", col_names = FALSE)
 
 
 conv <- read_csv("data/Convert_220K_names_to_4.7K_Ilmn-Affy_CommonSNP.csv")
@@ -54,8 +77,8 @@ So, we are a long way from having everything on the map.
 
 ## Making a sex-averaged map, and then sprinkling the unknown SNPs amongst them
 
-So, here is what I am going to do, it is an exact science to be sure, but we are interested in
-seeing what sort of effects physical linkage might have.  I am OK with randomly sprinkling 
+Here is what I am going to do---it is an exact science to be sure, but we are interested in
+seeing what sort of effects physical linkage might have.  I willl randomly sprinkle unmapped
 SNPs around the genome and seeing what the effect is.
 
 ### Sex-averaged recombination
@@ -68,7 +91,183 @@ sex_aved <- lmap %>%
 
 ### Placing unmapped markers in there
 
-So, for the markers that are not on there, for the purposes of simulation, I am just going
+For the markers that are not on the map, for the purposes of simulation, I am going
 to randomly intersperse them, and then interpolate the map distances, and pretend that is 
 the truth.  This is not right, of course, but it will be a good approximation.
+
+To do this, we will write a quick function called `sprinkle_into_map`: you pass it 1) the sex-averaged map,
+and 2) a list of all the markers; in turn it retains only the markers from the list. Those markers that 
+do not appear on the map are sorted randomly into the mapped markers and their "pseudo-mapped" positions
+are given as the average value of the flanking mapped SNPs.
+
+```{r sprinkle-func}
+#' make a map with unmapped markers randomly placed in there
+#' @param m the data frame with the sex-averaged map
+#' @param s the data frame with a column X1 that has the snp names
+#' @return a data frame with two new columns: new_chrom and new_map
+#' that have what we want.
+sprinkle_into_map <- function(m, s) {
+  # this just puts them all together (drops mapped SNPs not on the s list)
+  t1 <- left_join(s,m, by = c("X1" = "SNP_ID")) %>% 
+    arrange(Chromosome, sex_ave_map) %>%
+    mutate(new_chrom = Chromosome)
+  
+  # now we count up how many mapped SNPs are in each chromosome.  We need this
+  # info because we are going to sprinkle unmapped SNPs onto chromosomes at a
+  # rate proportional to the number of mapped SNPs already on the chromosome.
+  chrom_cts <- t1 %>%
+    filter(!is.na(Chromosome)) %>%
+    count(Chromosome)
+  
+  # in this ugly step we assign the unmapped SNPs to chromosomes
+  t1$new_chrom[is.na(t1$new_chrom)] <- sample(x = chrom_cts$Chromosome, 
+                                              size = sum(is.na(t1$new_chrom)), 
+                                              replace = TRUE, 
+                                              prob = chrom_cts$n)
+  
+  # now, we sort do a step that gives simulates the order of the unmapped
+  # markers---essentially sprinkling them into the existing ones. But we never
+  # put an unmapped one on the end.
+  t2 <- t1 %>%
+    arrange(new_chrom, sex_ave_map) %>%
+    group_by(new_chrom) %>%
+    mutate(tmp_rank = 1:n(),
+           tmp_rank = ifelse(!is.na(sex_ave_map), tmp_rank, sample(x = 2:(sum(!is.na(sex_ave_map)) - 1),
+                                                                   size = sum(is.na(sex_ave_map)),
+                                                                   replace = TRUE))) %>%
+    arrange(new_chrom, tmp_rank)
+  
+  # and now we just have some NA values in the sex_ave_map column to fill. I will fill them up and 
+  # down with the last observed value and then average those, which will have the effect of 
+  # filling them in with the mean of the two flanking mapped SNPs
+  t3 <- t2 %>%
+    mutate(fillup = sex_ave_map,
+           filldown = sex_ave_map) %>%
+    tidyr::fill(fillup, .direction = "up") %>%
+    tidyr::fill(filldown, .direction = "down") %>%
+    mutate(new_map = (fillup + filldown) / 2)
+  
+  # then drop a few columns and return after making pseudo-bp coordinates
+  # that correspond to 1 cm = 1 Mb. And if things are in the same linkage
+  # group they just get put 1 bp apart
+  t3 %>%
+    select(-(tmp_rank:filldown)) %>%
+    group_by(new_chrom, new_map) %>%
+    mutate(pseudo_bp = new_map * 10^6 + 1:n()) %>%
+    ungroup()
+  
+}
+
+```
+
+So, let's sprinkle! We set seeds so we get the same results each time.
+```{r do-sprinkle}
+set.seed(123)
+ns_new <- sprinkle_into_map(sex_aved, ns_snp)
+
+set.seed(456)
+west_new <- sprinkle_into_map(sex_aved, west_snp)
+```
+
+
+## Converting Genotype Data to PLINK format 
+
+### Plink .ped and .map files
+Now that we have a (pseudo)-linkage map for all the markers we can extract the genotypes from the Genepop files 
+and convert it all into PLINK format. I will do this with `awk`. Recall that we got the locus names from those 
+files earlier.  Note that we are likely going to have to reorder the markers in these files so that they correspond
+to the sprinkled marker order.
+```{sh make-plink-ped}
+mkdir data/processed
+
+gzcat data/NSaggregated_RAW.txt.gz | awk 'NF>100 {printf("%s %s 0 0 0 -9", $1, $1); for(i=3;i<=NF;i++) printf(" %d %d", substr($i, 1, 3), substr($i, 4, 3)); printf("\n");}'  > data/processed/tmp_ns.ped
+
+gzcat data/WestAgged_RAW.txt.gz | awk 'NF>100 {printf("%s %s 0 0 0 -9", $1, $1); for(i=3;i<=NF;i++) printf(" %d %d", substr($i, 1, 3), substr($i, 4, 3)); printf("\n");}'  > data/processed/tmp_west.ped
+
+```
+Now, we have to make the .map files.  This should include only those markers that are actually in the
+GenePop files and which are in the sprinkled maps, and we want them to be in map order.
+```{r make-map-files}
+ns_loci <- scan("data/processed/ns_loci.txt", what = "character")
+
+ns_plink_map <- ns_new %>%
+  mutate(map_dummy = 0) %>%
+  rename(Variant = X1) %>%
+  select(new_chrom, Variant, map_dummy, pseudo_bp) %>%
+  filter(Variant %in% ns_loci)
+
+
+west_loci <- scan("data/processed/west_loci.txt", what = "character")
+
+west_plink_map <- west_new %>%
+  mutate(map_dummy = 0) %>%
+  rename(Variant = X1) %>%
+  select(new_chrom, Variant, map_dummy, pseudo_bp) %>%
+  filter(Variant %in% west_loci)
+```
+Now that we have those pseudo-map files, we are going to need to put the loci in the
+right order in the PLINK files. We will just read it all into a tbl_df() and
+then select the columns to be in the right order:
+```{r reorder-markers}
+id_cols <- paste("id", 1:6, sep = "")
+
+ns_cols <- paste(rep(ns_loci, each = 2), 1:2, sep = "_")
+ns_cols_reordered <- paste(rep(ns_plink_map$Variant, each = 2), 1:2, sep = "_")
+
+nsdf <- read_delim("data/processed/tmp_ns.ped", delim = " ", col_names = c(id_cols, ns_cols), progress = FALSE)
+ns_reordered <- nsdf[, c(id_cols, ns_cols_reordered)]
+ 
+
+
+west_cols <- paste(rep(west_loci, each = 2), 1:2, sep = "_")
+west_cols_reordered <- paste(rep(west_plink_map$Variant, each = 2), 1:2, sep = "_")
+
+westdf <- read_delim("data/processed/tmp_west.ped", delim = " ", col_names = c(id_cols, west_cols), progress = FALSE)
+west_reordered <- westdf[, c(id_cols, west_cols_reordered)] 
+
+# and, having gotten those together, we can now write them to PLINK .ped files
+write_delim(ns_reordered, path = "data/processed/ns.ped", delim = " ", col_names = FALSE)
+write_delim(west_reordered, path = "data/processed/west.ped", delim = " ", col_names = FALSE)
+
+# and we write out the .map files as well
+write_delim(ns_plink_map, path = "data/processed/ns.map", delim = "\t", col_names = FALSE)
+write_delim(west_plink_map, path = "data/processed/west.map", delim = "\t", col_names = FALSE)
+
+```
+
+
+### Making Plink binary filesets
+
+These will be the "final products" from this particular Rmd.  We will store them
+in `intermediates` so that we can work from them directly later on.  For this to
+work you are gonna need `plink` on your system path somewhere.
+```{sh binary-filesets}
+mkdir -p intermediates/01
+cd data/processed
+
+plink --file ns --aec --make-bed --out ../../intermediates/01/binary-ns > /dev/null 2>&1
+plink --file west --aec --make-bed --out ../../intermediates/01/binary-west > /dev/null 2>&1
+```
+
+
+### Checking the Names of individuals
+
+
+And now we can read in the names of individuals and get ready to select different subsets.
+```{r read-names}
+ns_names <- read_delim("intermediates/01/binary-ns.fam", delim = " ", col_names = FALSE) %>%
+  mutate(group = str_sub(X1, 1, 3))
+west_names <- read_delim("intermediates/01/binary-west.fam", delim = " ", col_names = FALSE) %>%
+  mutate(group = str_sub(X1, 1, 3))
+
+```
+And here we just offer a little summary of the numbers in each:
+```{r name-nums-ns}
+ns_names %>% count(group)
+```
+```{r name-nums-west}
+west_names %>% count(group)
+```
+Those numbers are in agreement with the numbers of fish from the different wild populations
+in the paper.  Note that "ns" is the Maritimes, and "west" is Newfoundland.
 
