@@ -1,0 +1,54 @@
+---
+title: "Selecting Individuals and Loci"
+output: 
+  html_notebook:
+    toc: true
+---
+
+
+## Intro/Overview
+
+This notebook documents the strategy for 
+
+1. selecting (often at random) individuals to serve as Training Set individuals
+to choose markers with large allele freq differences between farmed and wild salmon
+1. then, once the training set is available, doing the actual locus selection in a way
+that takes the most differentiated SNPs from each linkage block.
+1. Finally creating data objects of the Test Set individuals with haplotypes
+ready to simulate into offspring.
+
+I had originally planned on doing this by using PLINK to quickly compute Fst's
+for each locus, but I ultimately decided to keep it all in a tidy Hadley-esque
+framework.  Accordingly, I will be selecting SNPs on the expected rate of correct
+assignment of an allele to one group or the other---this seems to be a relevant measure
+anyway, since what one is doing when inferring hybrids is assigning gene copies to one
+group or the other.
+
+```{r load-libs}
+library(tidyverse)
+library(stringr)
+```
+
+## Training Set Selection
+
+The AQU and WLN groups are the farmed fish in each data set.  So, we can get the data and put them
+into different groups etc.  I am going to develop this with west and wrap it into a function later.
+```{r get-data}
+dat <- readRDS("intermediates/01/tidy-west.rds") %>%
+  mutate(pop = str_sub(id, 1, 3),
+         group = ifelse(pop == "AQU" | pop == "WLN", "farmed", "wild"))
+```
+
+Here we assign a fraction of fish to a training and a test group
+```{r ass}
+assign_train_test <- function(dat, train_fract = 0.5) {
+  d2 <- dat %>%
+    distinct(id, pop, group) %>%
+    group_by(group, pop) %>%
+  mutate(test_or_train = sample(c(rep("train", ceiling(train_fract * n())),
+                                  rep("test", n() - ceiling(train_fract * n()))
+                                  )))
+         
+  left_join(dat, d2) 
+}
+```
