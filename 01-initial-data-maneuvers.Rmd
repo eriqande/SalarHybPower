@@ -16,9 +16,11 @@ Along the way we are making a few assumptions, etc. Basically what we are doing 
 2. Randomly interspersing unmapped markers from the large SNP panels into positions 
 on the linkage map.  (This is obviously an approximation, but it is what I have done in
 order to simulate physical linkage).
-3. Turn those linkage map distances in cM into megabasesm, using 1 cM = 1 Mb.  I do this
+3. Turn those linkage map distances in cM into megabases, using 1 cM = 1 Mb.  I do this
 basically because I want to pass base pair coordinates to PLINK.  Markers that are in the exact
-same linkage block are just given serial base pair coordinates.
+same linkage block are just given serial base pair coordinates.  Ultimately, when I filter out
+linked markers, I will be tossing things within "100 Kb" or so, and this lets us do that 
+easily.
 4. Take all the data that are in Genepop format and put them into PLINK and create
 binary plink filesets that we will save in `intermediates/01`.
 5. The final products from all this are these files in `intermediates/01`:
@@ -271,3 +273,51 @@ west_names %>% count(group)
 Those numbers are in agreement with the numbers of fish from the different wild populations
 in the paper.  Note that "ns" is the Maritimes, and "west" is Newfoundland.
 
+## Before proceeding with PLINK...
+
+Before we go off and use PLINK to compute Fst, I am going to explore just
+putting all the data in a tidy format, and then computing expected assignment
+probabilities, since that is another valid way of choosing loci, and possibly better
+in some contexts.
+
+So, how about a function to read plink ped and map files to tidy format:
+```{r plink-to-tidy}
+#' @param ped path to a space delimited plink ped file
+#' @param map path to a tab delimited plink map file
+plink2tidy <- function(ped, map) {
+  m <- read_delim(map, delim = "\t", col_names = FALSE, progress = FALSE) %>%
+    setNames(c("chrom", "variant", "dummy", "coord"))
+  
+  p <- read_delim(ped, delim = " ", col_names = FALSE, progress = FALSE, na = "0") %>%
+     setNames(c("id", "fid", "d1", "d2", "d3", "d4", paste(rep(m$variant, each = 2), c(1,2), sep = " "))) 
+ 
+  # now we gather p and drop the columns that are not relevant here
+  # and then split the gene copies up
+  pt <- p %>%
+    select(-(fid:d4)) %>%
+    tidyr::gather(data = ., key = "snp_and_gc", value = "allele", -id) %>%
+    tidyr::separate(data = ., col = snp_and_gc, into = c("variant", "gene_copy"), sep = " ", convert = TRUE)
+  
+  
+  # now bind the marker information on there and make chrom a factor so it sorts in the right order
+  mp <- left_join(pt, m %>% select(-dummy)) %>%
+    mutate(chrom = factor(chrom, levels = unique(m$chrom))) %>%
+    arrange(chrom, coord, id, gene_copy)
+  
+  # return that
+  mp
+  
+}
+```
+
+### Storing intermediate tidy files:
+
+Now we use that function to store tidy versions of those data sets:
+```{r make-tidy-versions}
+ns_tidy <- plink2tidy("data/processed/ns.ped", "data/processed/ns.map")
+west_tidy <- plink2tidy("data/processed/west.ped", "data/processed/west.map")
+
+saveRDS(ns_tidy, file = "intermediates/01/tidy-ns.rds", compress = "xz")
+
+saveRDS(west_tidy, file = "intermediates/01/tidy-west.rds", compress = "xz")
+```
