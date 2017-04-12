@@ -89,6 +89,11 @@ We will take a simple mean:
 ```{r sex-ave}
 sex_aved <- lmap %>%
   mutate(sex_ave_map = (fem_map + `Male map`) / 2)
+
+# and we will store that in the intermediates directory so that we
+# can grab it later to tell us which markers were on the map and which
+# weren't.
+saveRDS(sex_aved, file = "intermediates/01/sex_averaged_map.rds", compress = "xz")
 ```
 
 ### Placing unmapped markers in there

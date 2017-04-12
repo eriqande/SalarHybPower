@@ -7,9 +7,9 @@ Options in effect:
 
 Hostname: Erics-MacBook-Pro-2.local
 Working directory: /Users/eriq/Documents/git-repos/salar_snp_panels/data/processed
-Start time: Fri Apr  7 11:46:24 2017
+Start time: Wed Apr 12 12:19:54 2017
 
-Random number seed: 1491590784
+Random number seed: 1492024794
 4096 MB RAM detected; reserving 2048 MB for main workspace.
 Scanning .ped file... done.
 Performing single-pass .bed write (4359 variants, 180 people).
@@ -29,4 +29,4 @@ Note: No phenotypes present.
 ../../intermediates/01/binary-ns.bim + ../../intermediates/01/binary-ns.fam ...
 done.
 
-End time: Fri Apr  7 11:46:24 2017
+End time: Wed Apr 12 12:19:54 2017

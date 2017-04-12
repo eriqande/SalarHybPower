@@ -10,7 +10,7 @@ output:
 
 This notebook documents the strategy for 
 
-1. selecting (often at random) individuals to serve as Training Set individuals
+1. selecting (typically at random) individuals to serve as Training Set individuals
 to choose markers with large allele freq differences between farmed and wild salmon
 1. then, once the training set is available, doing the actual locus selection in a way
 that takes the most differentiated SNPs from each linkage block.
@@ -39,8 +39,16 @@ dat <- readRDS("intermediates/01/tidy-west.rds") %>%
          group = ifelse(pop == "AQU" | pop == "WLN", "farmed", "wild"))
 ```
 
-Here we assign a fraction of fish to a training and a test group
+This function assigns a fraction of fish to a training and a test group.
 ```{r ass}
+#' assign to training and test
+#'
+#' Simple version that does a fixed fraction from each pop
+#' @param dat data frame with columns id, variant, gene_copy, allele, 
+#' chrom, coord, pop, and group.  
+#' @param train_fract what fraction of each pop should be training (the rest is test)
+#' @return A data frame just like dat, but with a column called "test_or_train" that
+#' has entries of "test" or "train" as appropriate for each fish id.
 assign_train_test <- function(dat, train_fract = 0.5) {
   d2 <- dat %>%
     distinct(id, pop, group) %>%
@@ -51,4 +59,184 @@ assign_train_test <- function(dat, train_fract = 0.5) {
          
   left_join(dat, d2) 
 }
+```
+
+
+## Marker ranking and selection
+
+### Computing the ranking criterion
+
+We are going to rank markers on the basis of the expected posterior probability with which 
+an allele would be assigned to the correct group.  Let $p_1$ and $p_2$ be the frequencies of
+the $A$ allele at a SNP in two populations, 1 and 2.  The other allele, say $a$ has frequencies
+of $1-p_1$ and $1-p_2$ in the populations.  If an allele is drawn and is type $A$, then 
+the likelihood it came from population 1 is $p_1$ and from population 2 is $p_2$, and if we
+had an equal prior on the origin of the gene copy the posterior that it came from population 1
+would be $p_1/(p_1 + p_2)$.  So the expected posterior probability with which a gene copy from population 1
+would be assigned to population 1 is simply:
+\[
+E_1 = \frac{p_1^2}{p_1 + p_2} + \frac{(1-p_1)^2}{2 - (p_1 + p_2)}
+\]
+and for a gene copy that was actually from population 2 we would have:
+\[
+E_2 = \frac{p_2^2}{p_1 + p_2} + \frac{(1-p_2)^2}{2 - (p_1 + p_2)}.
+\]
+So, let us propose as a statistic for ranking loci for their utility for NewHybrids analysis
+what we call `epp`:
+\[
+\mathrm{epp} = \frac{E_1 + E_2}{2}
+\]
+
+To do this
+we are going to need to 
+
+1. compute the allele frequencies.  And we will add half of an allele to
+each pile (essentially a unit information prior) when we do it.
+1. compute the epp
+
+Here is a function to do that:
+```{r rank-func}
+#' @param D a data frame like that returned by assign_train_test()
+#' @return a data frame that includes variant, chrom, coord, allele then has
+#' two columns of allele counts (farmed and wild) taken only from the "train"
+#' individuals and then two columns of allele freqs (with the 1/2 correction
+#' in there) and  epp computed from those allele freqs.
+compute_epp <- function(D) {
+  D %>%
+    filter(test_or_train == "train") %>%
+    group_by(chrom, coord, variant, group, allele) %>%
+    summarise(counts = n()) %>%
+    tidyr::spread(data = ., key = group, value = counts, fill = 0) %>%
+    rename(farmed_cnts = farmed,
+           wild_cnts = wild) %>%
+    group_by(chrom, coord, variant) %>%
+    mutate(farmed_freq = (farmed_cnts + 1/2) / sum(farmed_cnts + 1/2),
+           wild_freq = (wild_cnts + 1/2) / sum(wild_cnts + 1/2),
+           epp_f = farmed_freq ^ 2 / (farmed_freq + wild_freq),  # epp_f and epp_w are just intermediate allele-specific
+           epp_w = wild_freq ^ 2 / (farmed_freq + wild_freq),    # terms that make the calculation easier, here
+           epp = (sum(epp_f) + sum(epp_w)) / 2)   %>%
+    select(-epp_f, -epp_w)
+    
+}
+```
+
+OK, that's that.   So, let's do it:
+```{r do-epp}
+set.seed(1234)  # for reproducibility during development
+A <- assign_train_test(dat)
+R <- compute_epp(A)
+```
+
+### Doing the marker selection
+
+Once we have the ranks of the markers we need to do the selection of them.
+In doing this we will want to be cognizant of physical linkage. I am not
+going to screen things out on the basis of LD between loci.  My feeling is that
+if there is LD within a single population between markers that are not very close 
+physically (and hence will be filtered out anyway because of their physical proximity),
+then those markers will likely be the result of recent strong selection in the aquaculture
+strain (with very long blocks of LD).  In that case, the NewHybrids model is not quite correct, since it assumes
+independence of parental population allele frequencies.  However, since we are simulating
+things without any LD, I don't suspect the difference will be all that great.  The variance
+in the posterior probabilities will be reduced a little because we are not simulating with 
+LD, but I think that filtering on the basis of physical proximity is a better bet anyway.  
+
+So, our method for marker selection will straightforward:
+
+1. First, within each chromosome we rank all the variants by `epp` and then we include
+the one with the highest epp in the chosen set. When a variant is placed in the chosen
+set, we add its base-pair coordinates to a set $B$.
+1. Then move on to the variant with the next highest `epp`.  If its base-pair coordinates
+are greater than `min_dist` from any of the previously chosen variants in $B$, then it
+will get chosen too, (and its coordindates included in $B$).
+
+The above process continues until we have either selected (or not) all the loci on the
+chromosome/linkage group.
+
+Once all the linkage groups have been processed, we rank all the variants by their 
+`epp` and select those that were on the "selected" pile from each linkage group.
+
+The choice of `min_dist` in our case is determined by the sex-averaged map that we have.
+After sex-averaging the recombination rates, our map changed in units of 0.05 cM, which 
+corresponds to units of 50 Kb on the physical coordinates that we made.  This means
+that any markers that are within 50 Kb of one another are essentially on the same
+linkage group from the linkage map estimation project.  So, we will set min_dist to be 
+60 Kb.  That will ensure that we don't take more than one marker from each group on the
+sex-averaged linkage map.  
+
+We will make a few functions for this here:
+```{r select-func}
+#' first, an internal function to be applied to each chromosome
+#' @param co a vector of base pair coordinates ranked descending on epp
+#' @param md the min_dist allowed between a new SNP and any other selected ones
+ranked_selector <- function(bp, md) {
+  N <- length(bp)
+  ret <- rep(NA, N)
+  ret[1] <- TRUE  # initialize by always choosing the first SNP
+  n <- 1  # the number chosen
+  B <- bp[1]
+  
+  if(N==1) return(ret)
+    
+  for(i in 2:N) {
+    if(all(abs(bp[i] - B) > md)) {
+      ret[i] <- TRUE
+      n <- n + 1
+      B[n] <- bp[i]
+      
+    } else {
+      ret[i] <- FALSE
+    }
+  }
+  ret
+}
+
+
+#' @param R a data frame like that returned by compute_epp()
+#' @return returns a data frame with chrom, coord, variant, epp, 
+#' and a new column "selectable" which is TRUE if it is one that should
+#' be selected, and FALSE if it is too close to another, previously selected
+#' marker.  It comes back sorted, descending on epp. 
+marker_selection <- function(R, min_dist = 6e04) {
+  # first we need to whittle R down to only 1 row per variant, and just keep the epp
+  # and we want to arrange on chrom then epp
+  R1 <- R %>% 
+    group_by(chrom, coord, variant) %>%
+    summarise(epp = first(epp)) %>%
+    ungroup() %>%
+    arrange(chrom, desc(epp))
+  
+  R1 %>% 
+    arrange(chrom, desc(epp)) %>%
+    group_by(chrom) %>%
+    mutate(selectable = ranked_selector(coord, min_dist)) %>%
+    ungroup() %>%
+    arrange(desc(epp))
+}
+```
+
+
+And this is how we run it:
+```{r run-m-select}
+M <- marker_selection(R, min_dist = 6e04)
+```
+
+It would be interesting to look at those and see how many of them were on the original
+linkage map, and how many were just "sprinkled in".  Here are the top 1000 loci
+```{r show-M}
+# get the sex-averaged map
+sa <- readRDS("intermediates/01/sex_averaged_map.rds")
+
+# then add a column "sprinkled"
+M %>%
+  mutate(sprinkled = !(variant %in% sa$SNP_ID))
+```
+
+## Save some files for the next segment
+
+We are going to save the output of test_and_train and the marker selection:
+```{r save-intermediates}
+dir.create("intermediates/02", showWarnings = FALSE)
+saveRDS(A, file = "intermediates/02/test_and_train.rds", compress = "xz")
+saveRDS(M, file = "intermediates/02/marker_rankings.rds", compress = "xz")
 ```
