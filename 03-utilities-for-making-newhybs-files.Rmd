@@ -1,0 +1,99 @@
+---
+title: "Selecting Individuals and Loci"
+output: 
+  html_notebook:
+    toc: true
+---
+
+
+## Intro/Overview
+
+After I write some functions for segregating haplotypes and creating hybrids I
+am going to need some functions for turning data frames of genotypes into
+newhybrids input files.  I am going to work on this before doing the segregation
+code since I think it will inform what I want the end result of that segregation
+code to look like.
+
+Our basic goal here is to pass in a data frame of individuals that has 
+at least the columns: id, variant, gene_copy, allele, and also pass in
+a vector of variant names, and then this will find all the common variant
+names and make a data frame that is suitable for printing out for newhybrids.
+
+Mostly this will be a lot of tidyr...
+
+```{r load-libs}
+library(tidyverse)
+library(stringr)
+
+source("R/nh_tablify.R")
+source("R/write_nh.R")
+```
+
+## Functions
+
+This is just one that makes tables of nonLumped genotypes that we will be able to 
+print to newhybrids files. (NOTE to self, this is going to work poorly if 
+the group is missing data at all indivs at a locus you want...)
+```r
+`r paste(readLines("R/nh_tablify.R"), collapse = "\n")`
+```
+
+Now, if you have bind_rows-ed together a bunch of products of `nh_tablify()` then you can
+pass them to this function to write a newhybs file:
+```r
+`r paste(readLines("R/write_nh.R"), collapse = "\n")`
+```
+
+## Putting those together
+
+OK, now that we have those functions we can put them all together with a simple example using
+the intermediate data stored from the last document (02).   First let us get the data.
+```{r get-data}
+TT <- readRDS("intermediates/02/test_and_train.rds")
+MM <- readRDS("intermediates/02/marker_rankings.rds")
+```
+
+Now, choose the top 1000 loci to use:
+```{r top200}
+v1000 <- MM %>%
+  filter(selectable == TRUE & cumsum(selectable) <= 1000) %>%
+  .$variant
+```
+
+Now, we are going are just going to put pure wild and pure farmed individuals in there
+as a test case.  We are going to include the training individuals with the z0s and z1s 
+options.  We can do this all into one big list first:
+```{r make-chunks}
+nh_list <- list(
+train_farm = TT %>%
+  filter(test_or_train == "train", group == "farmed") %>%
+  nh_tablify(., v1000, opt_str = "z0s", id_prepend = "train_"),
+train_wild = TT %>%
+  filter(test_or_train == "train", group == "wild") %>%
+  nh_tablify(., v1000, opt_str = "z1s", id_prepend = "train_"),
+test_farm = TT %>%
+  filter(test_or_train == "test", group == "farmed") %>%
+  nh_tablify(., v1000, opt_str = "", id_prepend = "test_"),
+test_wild = TT %>%
+  filter(test_or_train == "test", group == "wild") %>%
+  nh_tablify(., v1000, opt_str = "", id_prepend = "test_")
+)
+
+dir.create("scratch", showWarnings = FALSE)
+bind_rows(nh_list) %>%
+  write_nh(path = "scratch/all_pures.txt")
+```
+
+Note that if I want to run that in newhybrids with a fixed prior for the different categories, I 
+can do that like this:
+```sh
+~/Documents/git-repos/newhybrids/newhybs -d all_pures.txt -g P0 1 0 0 -g p1 0 0 1 -g F1 0 1 0 -g F2 .25 .5 .25 -g BX0 .5 .5 0 -g BX1 0 .5 .5 --pi-prior fixed  1 1 1 1 1 1
+```
+Looking at the output, it is easy to verify that when the prior is fixed and equal for all categories
+the `aa-PofZ.txt` and `aa-ScaledLikelihood.txt` files contain exactly the same values.
+But the `aa-PofZ.txt` also has an IndivName column (using the "n" option for names), so that
+will be the one that we want to use. 
+
+Great.  We are almost ready to put it all together, I just need to make a function
+that creates hybrids from the test individuals.  
+

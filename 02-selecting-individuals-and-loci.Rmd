@@ -27,6 +27,11 @@ group or the other.
 ```{r load-libs}
 library(tidyverse)
 library(stringr)
+
+# and source the files that hold functions we will be using
+source("R/assign_train_test.R")
+source("R/compute_epp.R")
+source("R/marker_selection.R")
 ```
 
 ## Training Set Selection
@@ -40,25 +45,8 @@ dat <- readRDS("intermediates/01/tidy-west.rds") %>%
 ```
 
 This function assigns a fraction of fish to a training and a test group.
-```{r ass}
-#' assign to training and test
-#'
-#' Simple version that does a fixed fraction from each pop
-#' @param dat data frame with columns id, variant, gene_copy, allele, 
-#' chrom, coord, pop, and group.  
-#' @param train_fract what fraction of each pop should be training (the rest is test)
-#' @return A data frame just like dat, but with a column called "test_or_train" that
-#' has entries of "test" or "train" as appropriate for each fish id.
-assign_train_test <- function(dat, train_fract = 0.5) {
-  d2 <- dat %>%
-    distinct(id, pop, group) %>%
-    group_by(group, pop) %>%
-  mutate(test_or_train = sample(c(rep("train", ceiling(train_fract * n())),
-                                  rep("test", n() - ceiling(train_fract * n()))
-                                  )))
-         
-  left_join(dat, d2) 
-}
+```r
+`r paste(readLines("R/assign_train_test.R"), collapse = "\n")`
 ```
 
 
@@ -95,29 +83,8 @@ each pile (essentially a unit information prior) when we do it.
 1. compute the epp
 
 Here is a function to do that:
-```{r rank-func}
-#' @param D a data frame like that returned by assign_train_test()
-#' @return a data frame that includes variant, chrom, coord, allele then has
-#' two columns of allele counts (farmed and wild) taken only from the "train"
-#' individuals and then two columns of allele freqs (with the 1/2 correction
-#' in there) and  epp computed from those allele freqs.
-compute_epp <- function(D) {
-  D %>%
-    filter(test_or_train == "train") %>%
-    group_by(chrom, coord, variant, group, allele) %>%
-    summarise(counts = n()) %>%
-    tidyr::spread(data = ., key = group, value = counts, fill = 0) %>%
-    rename(farmed_cnts = farmed,
-           wild_cnts = wild) %>%
-    group_by(chrom, coord, variant) %>%
-    mutate(farmed_freq = (farmed_cnts + 1/2) / sum(farmed_cnts + 1/2),
-           wild_freq = (wild_cnts + 1/2) / sum(wild_cnts + 1/2),
-           epp_f = farmed_freq ^ 2 / (farmed_freq + wild_freq),  # epp_f and epp_w are just intermediate allele-specific
-           epp_w = wild_freq ^ 2 / (farmed_freq + wild_freq),    # terms that make the calculation easier, here
-           epp = (sum(epp_f) + sum(epp_w)) / 2)   %>%
-    select(-epp_f, -epp_w)
-    
-}
+```r
+`r paste(readLines("R/compute_epp.R"), collapse = "\n")`
 ```
 
 OK, that's that.   So, let's do it:
@@ -126,6 +93,9 @@ set.seed(1234)  # for reproducibility during development
 A <- assign_train_test(dat)
 R <- compute_epp(A)
 ```
+
+Something to note here is that I think the above calculations would also work for multiallelic
+markers, like haplotypes. 
 
 ### Doing the marker selection
 
@@ -165,54 +135,8 @@ linkage group from the linkage map estimation project.  So, we will set min_dist
 sex-averaged linkage map.  
 
 We will make a few functions for this here:
-```{r select-func}
-#' first, an internal function to be applied to each chromosome
-#' @param co a vector of base pair coordinates ranked descending on epp
-#' @param md the min_dist allowed between a new SNP and any other selected ones
-ranked_selector <- function(bp, md) {
-  N <- length(bp)
-  ret <- rep(NA, N)
-  ret[1] <- TRUE  # initialize by always choosing the first SNP
-  n <- 1  # the number chosen
-  B <- bp[1]
-  
-  if(N==1) return(ret)
-    
-  for(i in 2:N) {
-    if(all(abs(bp[i] - B) > md)) {
-      ret[i] <- TRUE
-      n <- n + 1
-      B[n] <- bp[i]
-      
-    } else {
-      ret[i] <- FALSE
-    }
-  }
-  ret
-}
-
-
-#' @param R a data frame like that returned by compute_epp()
-#' @return returns a data frame with chrom, coord, variant, epp, 
-#' and a new column "selectable" which is TRUE if it is one that should
-#' be selected, and FALSE if it is too close to another, previously selected
-#' marker.  It comes back sorted, descending on epp. 
-marker_selection <- function(R, min_dist = 6e04) {
-  # first we need to whittle R down to only 1 row per variant, and just keep the epp
-  # and we want to arrange on chrom then epp
-  R1 <- R %>% 
-    group_by(chrom, coord, variant) %>%
-    summarise(epp = first(epp)) %>%
-    ungroup() %>%
-    arrange(chrom, desc(epp))
-  
-  R1 %>% 
-    arrange(chrom, desc(epp)) %>%
-    group_by(chrom) %>%
-    mutate(selectable = ranked_selector(coord, min_dist)) %>%
-    ungroup() %>%
-    arrange(desc(epp))
-}
+```r
+`r paste(readLines("R/marker_selection.R"), collapse = "\n")`
 ```
 
 
