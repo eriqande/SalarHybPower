@@ -6,6 +6,12 @@ output:
 ---
 
 
+```{r setup, include=FALSE}
+# set the working directory always to the project directory (one level up)
+knitr::opts_knit$set(root.dir = normalizePath(rprojroot::find_rstudio_root_file())) 
+```
+
+
 ## Intro/Overview
 
 In this document, we are getting the data that Brendan sent to me into a nice PLINK format.

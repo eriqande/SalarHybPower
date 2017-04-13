@@ -1,0 +1,118 @@
+---
+title: "Segregation and Reproduction"
+output: 
+  html_notebook:
+    toc: true
+---
+
+
+## Intro/Overview
+
+This notebook documents the strategy for segregating linked markers from
+individuals and forming hybrids.
+
+## Randomize Haplotypes in Founders
+
+We are going to assume no LD (cuz our selected SNPs are quite far apart)
+so, to initialize our simulations we are going to need to randomly assign
+alleles to one haplotype or another in the founder individuals. 
+
+This is going to work a little like `tablify_nh()` in that we will pass in
+a tidy data frame and a list of variants, and then go from there.
+So, let's get some data to work on:
+```{r get-data}
+library(tidyverse)
+TT <- readRDS("intermediates/02/test_and_train.rds")
+MM <- readRDS("intermediates/02/marker_rankings.rds")
+```
+
+So, the function looks like:
+```{r}
+#' @param D a tidy data frame with at least the columns: id, variant, gene_copy, allele, chrom, coord, pop
+#' @param V a vector of variant names giving which variants to use and the order they are
+#' to be in.
+#' @return A data frame with all the identifiers as before, but now the alleles are in two 
+#' columns: hap1 and hap2, which are the alleles as if they occurred together on different
+#' homologous chromosomes.  This gets sorted by id, chrom, and coord.
+scramble_founder_haplotypes <- function(D, V) {
+  # make one column for each gene copy
+  D1 <- D %>%
+    ungroup() %>%
+    filter(variant %in% V) %>%
+    tidyr::spread(data = ., key = gene_copy, value = allele) %>%
+    mutate(segind = sample(x = c(T,F), size = n(), replace = TRUE),
+           hap1 = ifelse(segind, `1`, `2`),
+           hap2 = ifelse(segind, `2`, `1`)) %>%
+    select(-`1`, -`2`, -segind) %>%
+    arrange(id, chrom, coord)
+  
+}
+```
+
+Let's see how it works:
+```{r demo-scramble}
+Test <- TT %>%
+  filter(test_or_train == "test")
+v1000 <- MM %>%
+  filter(selectable == TRUE & cumsum(selectable) <= 1000) %>%
+  .$variant
+
+SFG <- scramble_founder_haplotypes(Test, v1000)
+```
+Now, `SFG` is ready to have some gametes segregated.
+
+## Segregate gametes
+
+In order to maintain maximal sample sizes whilst not incurring the sort of 
+inflation of perceived accuracy that comes from sampling with replacement
+from the genes in the Test group we are going to segregate two gametes from 
+each individual.  These will be the opposites of one another---so, effectively all
+of the genetic material in an individual is getting segregated into the two gametes.
+(In effect there is no genetic drift in this type of sampling exercise...).  The variance
+in what gets segregated around might be a little greater because the two gametes are
+not independent, but that is not going to bias the accuracy simulations.  
+
+This function is going to work on a data frame like SFG that has a `hap1` and a `hap2`
+column.  It will create new columns `gam1` and `gam2` (gam is short for gamete there).
+We just give a chance of recombination between each pair of markers.
+
+```{r}
+#' @param H a data frame like the one that comes out of scramble_founder_haplotypes().  It has
+#' to have hap1 and hap2 columns.
+#' @param Mb_recomb_prob the probability of recombination over 10^6 bp (one Mb).  
+#' By default this is set to 0.01 (i.e. a centi-Morgan).
+segregate_gametes <- function(H, Mb_recomb_prob = 0.01) {
+  H %>%
+    arrange(id, chrom, coord) %>%
+    group_by(id, chrom) %>%
+    mutate(recom_prob = (coord - dplyr::lag(coord, 1)) * 0.01 / 10^6,
+           recom_prob = ifelse(is.na(recom_prob), 0, recom_prob),
+           start_value = sample(c(0,1), size = 1),
+           cumul_xovers = start_value + cumsum(runif(n = n()) < recom_prob)) %>%
+    # now, if cumum_xovers is even, gam1 is from hap1 and gam2 is from hap2.  Otherwise
+    # gam1 is from hap2 and gam2 is from hap1
+    mutate(gam1 = ifelse(cumul_xovers %% 2 == 0, hap1, hap2),
+           gam2 = ifelse(cumul_xovers %% 2 == 0, hap2, hap1)) %>%
+    select(-recom_prob, -start_value, -cumul_xovers) %>%
+    ungroup()
+}
+```
+
+And this is what it looks like when we use it:
+```{r use-seg-gam}
+SG <- segregate_gametes(H = SFG)
+```
+
+## Reproduction
+
+Now all we need is a function that will combine the gametes of randomly chosen individuals 
+into new individuals.  Then we could apply that to SG_wild and SG_farmed and get a bunch of
+F1's.  
+
+Afterward we can make functions that spit out as many F1s or F2s or BX1's or BX2's from a 
+certain set of starting founders, and spits out the remainder individuals as pures.  Note that 
+backcrossing really should only happen within populations, I should think...unless the F1's are more likely to stray...
+I guess that could certainly happen.
+
+I guess we don't need do backcrosses to the aquaculture strain...
+
