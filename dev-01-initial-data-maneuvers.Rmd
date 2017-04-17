@@ -37,6 +37,8 @@ binary-ns.bim      binary-ns.log      binary-west.bed    binary-west.fam    bina
 I will commit these and all future analyses will start with those file.
 6. After making all those I just checked the names of the individuals in the files and confirmed that
 they looked correct.
+7. After all that, I decided that it was easiest to keep everything in a tidy format, so this also creates
+compressed output files: `tidy-ns.rds` and `tidy-west.rds` in `intermediates/01`.
 
 
 
