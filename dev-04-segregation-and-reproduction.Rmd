@@ -111,13 +111,213 @@ SG <- segregate_gametes(H = SFG)
 ## Reproduction
 
 Now all we need is a function that will combine the gametes of randomly chosen individuals 
-into new individuals.  Then we could apply that to SG_wild and SG_farmed and get a bunch of
-F1's.  
+into new individuals. THis is an interesting problem.  We would like to make use of
+all the genetic material that we have from all the test individuals.  We will be
+constrained by what types of hybrid categories we are making and the sizes of the
+test samples from the different populations.  
 
-Afterward we can make functions that spit out as many F1s or F2s or BX1's or BX2's from a 
-certain set of starting founders, and spits out the remainder individuals as pures.  Note that 
-backcrossing really should only happen within populations, I should think...unless the F1's are more likely to stray...
-I guess that could certainly happen.
+### arrange_matings
 
-I guess we don't need do backcrosses to the aquaculture strain...
+The way I am going to approach this is to create a function `arrange_matings()` that
+returns a data frame that describes which gametes get passed on to which individuals.
 
+Let's first get some data sets that we will be passing into `arrange_matings()`.
+```{r trial-data}
+tmp <- TT %>%
+  filter(test_or_train == "test") %>%
+  group_by(id, pop, group) %>%
+  tally() %>%
+  ungroup() %>%
+  select(-n)
+
+A <- tmp %>% filter(group == "wild")
+B <- tmp %>% filter(group == "farmed")
+```
+Let's write it:
+```{r arrange-matings}
+#' return list of  who mates with whom to create hybrid offspring.  This will create F1's between 
+#' the A and the B group.
+#' @param A a data frame with id, pop, and group.  Should be exclusively from one of the groups (i.e. wild)
+#' @param B a data frame with id and pop, and group.  Should be from the other group (i.e. farmed)
+#' @return a data frame with columns id, popA, popB, idA gamA idB gamB that tells us which gametes from
+#' which individuals each new individual is to be made of.
+arrange_matings <- function(A, B) {
+  
+  n <-  min(nrow(A), nrow(B)) 
+  Atib <- tibble(id = rep(sample(A$id, size = n, replace = FALSE), each = 2))  %>%
+    mutate(gam = rep(c(1,2), length.out = n())) %>%
+    sample_n(size = nrow(.), replace = FALSE)
+  Btib <- tibble(id = rep(sample(B$id, size = n, replace = FALSE), each = 2))  %>%
+    mutate(gam = rep(c(1,2), length.out = n())) %>%
+    sample_n(size = nrow(.), replace = FALSE)
+  
+  
+  Atib2 <- left_join(Atib, A)
+  names(Atib2) <- paste(names(Atib2), "A", sep = "_")
+  Btib2 <- left_join(Btib, B)
+  names(Btib2) <- paste(names(Btib2), "B", sep = "_")
+  
+  F1s <- bind_cols(Atib2, Btib2) %>%
+    mutate(id = paste("F1", 1:n(), sep = "_")) %>%
+    select(id, everything())
+  
+  return(F1s)
+}
+```
+
+Now that we have that function, we can create a mating list for F1s like this:
+```{r demo-arrange}
+arrange_matings(A, B)
+```
+
+### Some data to play with
+
+We need some scrambled founder data for the following functions for testing 
+and demo.  So, here it is:
+```{r make-demo-data}
+Wf <- SFG %>%
+  filter(group == "wild")
+Ff <- SFG %>%
+  filter(group == "farmed")
+```
+### make_f1s
+And so, we can make a function to make F1's like this:
+```{r make-f1-func}
+#' @param Wf a data frame of founders with scrambled haplotypes in hap1 and hap2
+#' @param Ff a data frame of founders (from the other species/population) 
+#' with scrambled haplotypes in hap1 and hap2
+make_f1s <- function(Wf, Ff) {
+  A <- Wf %>%
+    count(id) %>%
+    select(-n)
+  B <- Ff %>%
+    count(id) %>%
+    select(-n)
+  
+  ML <- arrange_matings(A, B) # get the list of matings
+  
+  Wft <- Wf %>%
+    select(id, variant, chrom, coord, hap1, hap2) %>%
+    rename(id_A = id, `1` = hap1, `2` = hap2) %>%
+    tidyr::gather(data = ., key = "gam_A", value = "hap1", `1`, `2`) %>%
+    mutate(gam_A = as.numeric(gam_A))
+  
+  Fft <- Ff %>%
+    select(id, variant, chrom, coord, hap1, hap2) %>%
+    rename(id_B = id, `1` = hap1, `2` = hap2) %>%
+    tidyr::gather(data = ., key = "gam_B", value = "hap2", `1`, `2`) %>%
+    mutate(gam_B = as.numeric(gam_B))
+  
+  left_join(ML, Wft) %>%
+    left_join(., Fft)
+  
+}
+```
+
+Then we can use that to make a bunch of F1's and immediately segrate some haplotypes from them.
+```{r demo_f1s}
+newF1s <- make_f1s(Wf, Ff) %>%
+  segregate_gametes()
+
+newF1s[1:100,]
+```
+
+That is cool.  The harder part is the later generations, but not so bad,
+it turns out.
+
+### make_f2s
+
+This function will take the same input as `make_f1s()` but then it will 
+split the result into two data frames and make F2s from it.
+```{r make-f2-func}
+make_F2s <- function(Wf, Ff) {
+  F1 <- make_f1s(Wf, Ff) %>%
+    segregate_gametes()
+  
+  # now, make two new data frames that we will combine using make_F1s into F2s
+  ids <- sample(unique(F1$id))  # permute all the ids around
+  if(length(ids) %% 2 == 1) {  # if there is an odd number of F1s, then drop the first one
+    ids <- ids[-1]
+  }
+  idA <- ids[1:(length(ids) / 2)]
+  idB <- ids[(1 + length(ids) / 2):length(ids)]
+  
+  # now make new Wf and new Ff and run them back through make_F1s
+  F1_clean <- F1 %>%
+    select(-ends_with("_A"), -ends_with("_B"))
+  
+  newWf <- F1_clean %>% filter(id %in% idA)
+  newFf <- F1_clean %>% filter(id %in% idB)
+  
+  F2 <- make_f1s(newWf, newFf) %>%
+    mutate(id = stringr::str_replace(id, "^F1", "F2"))
+  
+}
+```
+
+And we can use that thing like this:
+```{r demo-f2}
+newF2s <- make_F2s(Wf, Ff)
+newF2s[1:100, ]
+```
+
+### make backcrosses
+
+This is a single function that will make backcrosses to the first population (the A population).
+If you want to make backcrosses in the other direction, you will just need to 
+call it with the populations in a different order.  This is also going to be a wasteful function:
+it is not going to work hard to make pures out of any extra individuals, etc.  It is going to make
+as many backcrosses as it can, and no more. It is also not going to be population aware---that all
+has to be done on the front end if you want to make sure that backcrosses are all within the same
+population, for example.
+
+Before we launch into this, let's talk about how many backcrosses you can make.  Imagine that you are
+going to be backcrossing to the $A$ population which has $n_A$ test indivs.  And the other population
+is the $B$ population which has $n_B$ individuals in it.  To figure out how many A-backcross 
+indivs you can make without reusing any of your gene copies, you start by computing
+$M = \min(\lfloor n_a/3 \rfloor, n_b)$.  Then the way you do this is
+
+1. Hold out $2M$ of the $n_a$ individuals for backcrossing later
+2. Make $2M$ F1s out of $M$ $A$'s and $M$ $B$'s
+3. Mate the $2M$ $A$'s to the $2M$ F1's to get $4M$ backcrosses.
+
+So, you can get $4M$ backcrosses out of it.
+
+Let's write a function that does this:
+```{r make_BX-func}
+#' @param idstr string that gets prepended to the number of each individual
+make_BX <- function(Wf, Ff, idstr = "BX") {
+  A <- Wf %>%
+    count(id) %>%
+    select(-n)
+  B <- Ff %>%
+    count(id) %>%
+    select(-n)
+  
+  M <- min(floor(nrow(A)/3), nrow(B))
+  
+  Aids <- sample(A$id) # permute these
+  Bids <- sample(B$id) # permute these too
+  
+  Ai1 <- Aids[1:M]  # ids of A's for F1 creation
+  Bi1 <- Bids[1:M]  # ids of B's for F1 creation
+  
+  Ai2 <- Aids[(M+1):(3 * M)]  # ids of A's for making backcrosses
+  
+  # make the F1s and segregate em 
+  F1 <- make_f1s(Wf %>% filter(id %in% Ai1), 
+                 Ff %>% filter(id %in% Bi1)) %>%
+    segregate_gametes()
+  
+  # now, make F1's between the F1s and the Ai2's
+  BX <- make_f1s(Wf %>% filter(id %in% Ai2), F1) %>%
+    mutate(id = stringr::str_replace(id, "^F1", idstr))
+  
+}
+```
+
+And we can use that like this:
+```{r demo-bx}
+newBXs <- make_BX(Wf, Ff)
+newBXs[1:100,]
+```
