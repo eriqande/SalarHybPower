@@ -1,0 +1,146 @@
+---
+title: "Putting it All Together"
+output: 
+  html_notebook:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+# set the working directory always to the project directory (one level up)
+knitr::opts_knit$set(root.dir = normalizePath(rprojroot::find_rstudio_root_file())) 
+```
+
+
+## Intro/Overview
+
+This notebook documents the development of the strategy for putting together all the previous
+functions so that I can start from a data set of individual genotypes and physical positions
+and then I can do:
+
+1. Choose train and test
+1. Rank markers
+1. Simulate data sets with different types of hybrids 
+1. Write those data sets out in a directory structure that makes it easy to run newhybrids with Unix parallel.  
+
+
+
+First we ensure that we load each of the functions:
+```{r}
+library(tidyverse)
+library(stringr)
+rfiles <- dir("R", full.names = TRUE)
+dump <- lapply(rfiles, source)
+```
+
+We also want to have some example data.  We will just use the Nova Scotia data. But we will
+call this dat:
+```{r}
+dat <- readRDS("intermediates/01/tidy-west.rds") %>%
+  mutate(pop = str_sub(id, 1, 3),
+         group = ifelse(pop == "AQU" | pop == "WLN", "farmed", "wild"))
+```
+
+
+## Split and Rank
+
+We are going to have a single function that splits the same into training and test 
+and also ranks the loci.  It will return a list with components `split_dat` and `ranked_markers`.
+
+```{r}
+split_and_rank <- function(dat, train_fract = 0.5, min_dist = 6e04) {
+  A <- assign_train_test(dat, train_fract = train_fract) 
+  R <- compute_epp(A)
+  M <- marker_selection(R, min_dist = min_dist)
+  list(split_dat = A, ranked_markers = M)
+}
+```
+So, it works like this:
+```{r}
+SAR <- split_and_rank(dat)
+```
+
+## Simulate Data Sets
+
+We will do this so that all the training individuals will end up with `z0s` or `z1s` in the data
+set, and then we will make as many of the others as we can.  Since we are going to be just computing 
+the scaled likelihoods for all these guys, it should be fine to just create everyone to be of one type
+(i.e. Pure, F1, F2, Bx, etc.)  And I need to do something about whether I want to only have 
+matings occur between individuals from the same population. (for F2s and BXs)
+
+Let's start writing it:
+```{r}
+#' @param SAR the output of split_and_rank()
+#' @param wild_pop the population of wild fish to simulate from
+#' @param hyb_cat the hybrid category desired 
+#' @param L the number of loci to choose
+#' @param dir the path of the directory to create to put the result into.  It will 
+#' write the result into a file called nh_input.txt
+create_hybrid_dataset <- function(SAR, wild_pop, hyb_cat, L, dir = "hyb_dir") {
+  
+  # Get the L markers. store their names in a vector called V (for variants)
+  V <- SAR$ranked_markers %>%
+    filter(selectable == TRUE & cumsum(selectable) <= L) %>%
+    .$variant  
+  
+  # break the data into training and test individuals
+  Train <- SAR$split_dat %>%
+    filter(test_or_train == "train")
+  Test <- SAR$split_dat %>%
+    filter(test_or_train == "test")
+  
+  # make the rows that the Train indivs will be in the newhybrids data set.
+  # note that "farmed" will always be species 0. 
+  trainNH <- list(
+    Train %>%
+      filter(group == "farmed") %>%
+      nh_tablify(., V, opt_str = "z0s", id_prepend = "train_"),
+    Train %>%
+      filter(group == "wild") %>%
+      nh_tablify(., V, opt_str = "z1s", id_prepend = "train_")
+  ) %>%
+    bind_rows()
+  
+  # now make the data frames that represent the wild and farmed founders and 
+  # scramble their haplotypes up
+  Wf <- Test %>%
+    filter(group == "wild") %>%
+    filter(pop == wild_pop) %>%
+    scramble_founder_haplotypes(., V)
+  
+  Ff <- Test %>%
+    filter(group == "farmed") %>%
+    scramble_founder_haplotypes(., V)
+  
+  
+  # now, simulate whatever type of hybrid was requested
+  Hybs <- switch(hyb_cat,
+         F1 = make_f1s(Wf, Ff),
+         F2 = make_f2s(Wf, Ff),
+         BX = make_bxs(Wf, Ff),
+         stop("unknown hyb_cat: ", hyb_cat)
+  )
+  
+  # and prepare each of those simulated individuals as a row in new-hybs file
+  hybsNH <- Hybs %>%
+    rename(`1` = hap1, `2` = hap2) %>%
+    tidyr::gather(data = ., key = "gene_copy", value = "allele", `1`, `2`) %>%
+    mutate(gene_copy = as.integer(gene_copy)) %>%
+    nh_tablify(., V, opt_str = "", id_prepend = "")
+  
+  # now, make the directory to write the result into
+  dir.create(dir)
+  bind_rows(trainNH, hybsNH) %>%
+    write_nh(., path = file.path(dir, "nh_data.txt"))
+  
+}
+```
+
+See that that looks like:
+```{r}
+create_hybrid_dataset(SAR, wild_pop = "LHR", hyb_cat = "F1", L = 2000, dir = "hyb_dir")
+```
+
+Then we can do:
+```sh
+ ~/Documents/git-repos/newhybrids/newhybs -d nh_data.txt -g P0 1 0 0 -g p1 0 0 1 -g F1 0 1 0 -g F2 .25 .5 .25 -g BX0 .5 .5 0 -g BX1 0 .5 .5 --pi-prior fixed  1 1 1 1 1 1
+```

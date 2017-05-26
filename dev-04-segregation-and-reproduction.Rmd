@@ -16,6 +16,12 @@ knitr::opts_knit$set(root.dir = normalizePath(rprojroot::find_rstudio_root_file(
 This notebook documents the strategy for segregating linked markers from
 individuals and forming hybrids.
 
+Here we ensure that we load each of the functions:
+```{r}
+rfiles <- dir("R", full.names = TRUE)
+dump <- lapply(rfiles, source)
+```
+
 ## Randomize Haplotypes in Founders
 
 We are going to assume no LD (cuz our selected SNPs are quite far apart)
@@ -32,26 +38,8 @@ MM <- readRDS("intermediates/02/marker_rankings.rds")
 ```
 
 So, the function looks like:
-```{r}
-#' @param D a tidy data frame with at least the columns: id, variant, gene_copy, allele, chrom, coord, pop
-#' @param V a vector of variant names giving which variants to use and the order they are
-#' to be in.
-#' @return A data frame with all the identifiers as before, but now the alleles are in two 
-#' columns: hap1 and hap2, which are the alleles as if they occurred together on different
-#' homologous chromosomes.  This gets sorted by id, chrom, and coord.
-scramble_founder_haplotypes <- function(D, V) {
-  # make one column for each gene copy
-  D1 <- D %>%
-    ungroup() %>%
-    filter(variant %in% V) %>%
-    tidyr::spread(data = ., key = gene_copy, value = allele) %>%
-    mutate(segind = sample(x = c(T,F), size = n(), replace = TRUE),
-           hap1 = ifelse(segind, `1`, `2`),
-           hap2 = ifelse(segind, `2`, `1`)) %>%
-    select(-`1`, -`2`, -segind) %>%
-    arrange(id, chrom, coord)
-  
-}
+```r
+`r paste(readLines("R/scramble_founder_haplotypes.R"), collapse = "\n")`
 ```
 
 Let's see how it works:
@@ -81,27 +69,7 @@ This function is going to work on a data frame like SFG that has a `hap1` and a 
 column.  It will create new columns `gam1` and `gam2` (gam is short for gamete there).
 We just give a chance of recombination between each pair of markers.
 
-```{r}
-#' @param H a data frame like the one that comes out of scramble_founder_haplotypes().  It has
-#' to have hap1 and hap2 columns.
-#' @param Mb_recomb_prob the probability of recombination over 10^6 bp (one Mb).  
-#' By default this is set to 0.01 (i.e. a centi-Morgan).
-segregate_gametes <- function(H, Mb_recomb_prob = 0.01) {
-  H %>%
-    arrange(id, chrom, coord) %>%
-    group_by(id, chrom) %>%
-    mutate(recom_prob = (coord - dplyr::lag(coord, 1)) * 0.01 / 10^6,
-           recom_prob = ifelse(is.na(recom_prob), 0, recom_prob),
-           start_value = sample(c(0,1), size = 1),
-           cumul_xovers = start_value + cumsum(runif(n = n()) < recom_prob)) %>%
-    # now, if cumum_xovers is even, gam1 is from hap1 and gam2 is from hap2.  Otherwise
-    # gam1 is from hap2 and gam2 is from hap1
-    mutate(gam1 = ifelse(cumul_xovers %% 2 == 0, hap1, hap2),
-           gam2 = ifelse(cumul_xovers %% 2 == 0, hap2, hap1)) %>%
-    select(-recom_prob, -start_value, -cumul_xovers) %>%
-    ungroup()
-}
-```
+Here is what the function looks like
 
 And this is what it looks like when we use it:
 ```{r use-seg-gam}
@@ -134,35 +102,8 @@ A <- tmp %>% filter(group == "wild")
 B <- tmp %>% filter(group == "farmed")
 ```
 Let's write it:
-```{r arrange-matings}
-#' return list of  who mates with whom to create hybrid offspring.  This will create F1's between 
-#' the A and the B group.
-#' @param A a data frame with id, pop, and group.  Should be exclusively from one of the groups (i.e. wild)
-#' @param B a data frame with id and pop, and group.  Should be from the other group (i.e. farmed)
-#' @return a data frame with columns id, popA, popB, idA gamA idB gamB that tells us which gametes from
-#' which individuals each new individual is to be made of.
-arrange_matings <- function(A, B) {
-  
-  n <-  min(nrow(A), nrow(B)) 
-  Atib <- tibble(id = rep(sample(A$id, size = n, replace = FALSE), each = 2))  %>%
-    mutate(gam = rep(c(1,2), length.out = n())) %>%
-    sample_n(size = nrow(.), replace = FALSE)
-  Btib <- tibble(id = rep(sample(B$id, size = n, replace = FALSE), each = 2))  %>%
-    mutate(gam = rep(c(1,2), length.out = n())) %>%
-    sample_n(size = nrow(.), replace = FALSE)
-  
-  
-  Atib2 <- left_join(Atib, A)
-  names(Atib2) <- paste(names(Atib2), "A", sep = "_")
-  Btib2 <- left_join(Btib, B)
-  names(Btib2) <- paste(names(Btib2), "B", sep = "_")
-  
-  F1s <- bind_cols(Atib2, Btib2) %>%
-    mutate(id = paste("F1", 1:n(), sep = "_")) %>%
-    select(id, everything())
-  
-  return(F1s)
-}
+```r
+`r paste(readLines("R/arrange_matings.R"), collapse = "\n")`
 ```
 
 Now that we have that function, we can create a mating list for F1s like this:
@@ -182,36 +123,8 @@ Ff <- SFG %>%
 ```
 ### make_f1s
 And so, we can make a function to make F1's like this:
-```{r make-f1-func}
-#' @param Wf a data frame of founders with scrambled haplotypes in hap1 and hap2
-#' @param Ff a data frame of founders (from the other species/population) 
-#' with scrambled haplotypes in hap1 and hap2
-make_f1s <- function(Wf, Ff) {
-  A <- Wf %>%
-    count(id) %>%
-    select(-n)
-  B <- Ff %>%
-    count(id) %>%
-    select(-n)
-  
-  ML <- arrange_matings(A, B) # get the list of matings
-  
-  Wft <- Wf %>%
-    select(id, variant, chrom, coord, hap1, hap2) %>%
-    rename(id_A = id, `1` = hap1, `2` = hap2) %>%
-    tidyr::gather(data = ., key = "gam_A", value = "hap1", `1`, `2`) %>%
-    mutate(gam_A = as.numeric(gam_A))
-  
-  Fft <- Ff %>%
-    select(id, variant, chrom, coord, hap1, hap2) %>%
-    rename(id_B = id, `1` = hap1, `2` = hap2) %>%
-    tidyr::gather(data = ., key = "gam_B", value = "hap2", `1`, `2`) %>%
-    mutate(gam_B = as.numeric(gam_B))
-  
-  left_join(ML, Wft) %>%
-    left_join(., Fft)
-  
-}
+```r
+`r paste(readLines("R/make_f1s.R"), collapse = "\n")`
 ```
 
 Then we can use that to make a bunch of F1's and immediately segrate some haplotypes from them.
@@ -229,35 +142,13 @@ it turns out.
 
 This function will take the same input as `make_f1s()` but then it will 
 split the result into two data frames and make F2s from it.
-```{r make-f2-func}
-make_F2s <- function(Wf, Ff) {
-  F1 <- make_f1s(Wf, Ff) %>%
-    segregate_gametes()
-  
-  # now, make two new data frames that we will combine using make_F1s into F2s
-  ids <- sample(unique(F1$id))  # permute all the ids around
-  if(length(ids) %% 2 == 1) {  # if there is an odd number of F1s, then drop the first one
-    ids <- ids[-1]
-  }
-  idA <- ids[1:(length(ids) / 2)]
-  idB <- ids[(1 + length(ids) / 2):length(ids)]
-  
-  # now make new Wf and new Ff and run them back through make_F1s
-  F1_clean <- F1 %>%
-    select(-ends_with("_A"), -ends_with("_B"))
-  
-  newWf <- F1_clean %>% filter(id %in% idA)
-  newFf <- F1_clean %>% filter(id %in% idB)
-  
-  F2 <- make_f1s(newWf, newFf) %>%
-    mutate(id = stringr::str_replace(id, "^F1", "F2"))
-  
-}
+```r
+`r paste(readLines("R/make_f2s.R"), collapse = "\n")`
 ```
 
 And we can use that thing like this:
 ```{r demo-f2}
-newF2s <- make_F2s(Wf, Ff)
+newF2s <- make_f2s(Wf, Ff)
 newF2s[1:100, ]
 ```
 
@@ -284,40 +175,12 @@ $M = \min(\lfloor n_a/3 \rfloor, n_b)$.  Then the way you do this is
 So, you can get $4M$ backcrosses out of it.
 
 Let's write a function that does this:
-```{r make_BX-func}
-#' @param idstr string that gets prepended to the number of each individual
-make_BX <- function(Wf, Ff, idstr = "BX") {
-  A <- Wf %>%
-    count(id) %>%
-    select(-n)
-  B <- Ff %>%
-    count(id) %>%
-    select(-n)
-  
-  M <- min(floor(nrow(A)/3), nrow(B))
-  
-  Aids <- sample(A$id) # permute these
-  Bids <- sample(B$id) # permute these too
-  
-  Ai1 <- Aids[1:M]  # ids of A's for F1 creation
-  Bi1 <- Bids[1:M]  # ids of B's for F1 creation
-  
-  Ai2 <- Aids[(M+1):(3 * M)]  # ids of A's for making backcrosses
-  
-  # make the F1s and segregate em 
-  F1 <- make_f1s(Wf %>% filter(id %in% Ai1), 
-                 Ff %>% filter(id %in% Bi1)) %>%
-    segregate_gametes()
-  
-  # now, make F1's between the F1s and the Ai2's
-  BX <- make_f1s(Wf %>% filter(id %in% Ai2), F1) %>%
-    mutate(id = stringr::str_replace(id, "^F1", idstr))
-  
-}
+```r
+`r paste(readLines("R/make_bxs.R"), collapse = "\n")`
 ```
 
 And we can use that like this:
 ```{r demo-bx}
-newBXs <- make_BX(Wf, Ff)
+newBXs <- make_bxs(Wf, Ff)
 newBXs[1:100,]
 ```

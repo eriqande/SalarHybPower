@@ -1,0 +1,130 @@
+---
+title: "Putting it All Together"
+output: 
+  html_notebook:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+# set the working directory always to the project directory (one level up)
+knitr::opts_knit$set(root.dir = normalizePath(rprojroot::find_rstudio_root_file())) 
+```
+
+
+## Intro/Overview
+
+This notebook does a very simple test to make sure that my segregation functions
+are working out correctly.  I am going to assign wild and farmed totally different 
+allelic types (1 vs 2) at all loci and then look at the fraction of different alleles
+amongst the simulated hybrids.
+
+First we ensure that we load each of the functions:
+```{r}
+library(tidyverse)
+library(stringr)
+rfiles <- dir("R", full.names = TRUE)
+dump <- lapply(rfiles, source)
+```
+
+We also want to have some example data.  We will just use the Nova Scotia data. But we will
+call this dat:
+```{r}
+dat <- readRDS("intermediates/01/tidy-west.rds") %>%
+  mutate(pop = str_sub(id, 1, 3),
+         group = ifelse(pop == "AQU" | pop == "WLN", "farmed", "wild"))
+```
+
+Now, we will just change alleles to 1 or 2 on the basis of the group:
+```{r}
+fake_dat <- dat %>%
+  mutate(allele = ifelse(group == "farmed", 1, 2))
+```
+
+And, of course, we won't worry about ranking these things, we will just take all
+of them:
+```{r}
+fake_markers <- fake_dat %>%
+  group_by(chrom, coord, variant) %>% 
+  tally() %>%
+  ungroup() %>%
+  select(-n) %>%
+  mutate(epp = 0.5, selectable = TRUE)
+
+fakeV <- fake_markers$variant
+```
+
+Now we can make a group of wild and a group of farmed
+```{r}
+Wf <- fake_dat %>%
+    filter(group == "wild") %>%
+    scramble_founder_haplotypes(., fakeV)
+  
+Ff <- fake_dat %>%
+  filter(group == "farmed") %>%
+  scramble_founder_haplotypes(., fakeV)
+```
+
+Then we can make hybrids out of those and count up the number of 1's and 2's in each
+individual.
+```{r}
+cats <- c("F1", "F2", "BX_wild", "BX_farmed")
+names(cats) <- cats
+
+wild_fracts <- lapply(cats, function(hyb_cat) {
+  Hybs <- switch(hyb_cat,
+                 F1 = make_f1s(Wf, Ff),
+                 F2 = make_f2s(Wf, Ff),
+                 BX_wild = make_bxs(Wf, Ff),
+                 BX_farmed = make_bxs(Ff, Wf),
+                 stop("unknown hyb_cat: ", hyb_cat)
+  )
+  Hybs %>% 
+    mutate(genotype_cat = ifelse(!near(hap1, hap2), 1, ifelse(near(hap1, 1), 0, 2))) %>%
+    mutate(genotype_cat = as.integer(genotype_cat))
+
+
+})
+
+wf_df <- wild_fracts %>%
+  bind_rows(.id = "hyb_cat")
+
+```
+
+Now we can analyze those:
+```{r}
+wf_df %>%
+  group_by(hyb_cat, id, genotype_cat) %>%
+  tally() %>% View
+```
+
+OK, there is clearly something very wrong here!  There is no recombination occurring, even between the
+chromosomes, somehow!
+
+```{r}
+F1 <- make_f1s(Wf, Ff) %>%
+  segregate_gametes()
+
+# this shows that there are clearly recombinations occurring
+# in the gametes: some of the gametes have two different alleles
+F1 %>% 
+  group_by(id, chrom, gam1) %>% 
+  tally()
+```
+So, things are segregating correctly when the F1s segregate gametes.  Let's look at our F2's now
+```{r}
+wf_df %>%
+  filter(hyb_cat == "F2") %>%
+  group_by(id, chrom, hap1, hap2) %>% 
+  tally() %>%
+  View
+```
+And also at our BXs:
+```{r}
+wf_df %>%
+  filter(hyb_cat == "BX_wild") %>%
+  group_by(id, chrom, hap1, hap2) %>% 
+  tally() %>%
+  View
+```
+
+So, it looks like things are going wrong when make_f1s() is used the second time around.  I'll have to deal with that, clearly!!
