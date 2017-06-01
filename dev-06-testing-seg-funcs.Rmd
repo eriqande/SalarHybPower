@@ -1,5 +1,5 @@
 ---
-title: "Putting it All Together"
+title: "Testing the Linked Inheritance"
 output: 
   html_notebook:
     toc: true
@@ -92,39 +92,25 @@ wf_df <- wild_fracts %>%
 
 Now we can analyze those:
 ```{r}
-wf_df %>%
+gcat_props <- wf_df %>%
   group_by(hyb_cat, id, genotype_cat) %>%
-  tally() %>% View
-```
-
-OK, there is clearly something very wrong here!  There is no recombination occurring, even between the
-chromosomes, somehow!
-
-```{r}
-F1 <- make_f1s(Wf, Ff) %>%
-  segregate_gametes()
-
-# this shows that there are clearly recombinations occurring
-# in the gametes: some of the gametes have two different alleles
-F1 %>% 
-  group_by(id, chrom, gam1) %>% 
-  tally()
-```
-So, things are segregating correctly when the F1s segregate gametes.  Let's look at our F2's now
-```{r}
-wf_df %>%
-  filter(hyb_cat == "F2") %>%
-  group_by(id, chrom, hap1, hap2) %>% 
   tally() %>%
-  View
-```
-And also at our BXs:
-```{r}
-wf_df %>%
-  filter(hyb_cat == "BX_wild") %>%
-  group_by(id, chrom, hap1, hap2) %>% 
-  tally() %>%
-  View
+  mutate(prop = n / sum(n)) %>%
+  mutate(genotype_cat = factor(genotype_cat))
 ```
 
-So, it looks like things are going wrong when make_f1s() is used the second time around.  I'll have to deal with that, clearly!!
+
+And now we should be able to make boxplots of the proportions of different 
+types of  genotypes in the individuals.  `0` = both copies are from farmed,
+`1` = heterozygote (one farmed and one wild allele), and `2` is a locus with 
+both gene copies from the wild population.
+```{r}
+ggplot(gcat_props, aes(x = genotype_cat, y = prop, colour = hyb_cat)) +
+  geom_boxplot() +
+  facet_wrap(~hyb_cat)
+```
+
+That looks right.  Now, I think it would be great to give each founder individual's 
+haplotype a separate allele and then run through this so that we can easily count
+up how many recombination breaks there are on the resulting chromosomes.
+

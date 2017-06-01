@@ -70,7 +70,10 @@ matings occur between individuals from the same population. (for F2s and BXs)
 Let's start writing it:
 ```{r}
 #' @param SAR the output of split_and_rank()
-#' @param wild_pop the population of wild fish to simulate from
+#' @param wild_pop a vector of the populations of wild fish to simulate from. It treats them
+#' as all being from the same population if they are included together.  This is not a 
+#' problem for F1's, but it is likely unrealistic for F2s and backcrosses. Unless the 
+#' F1 hybrids have no site fidelity (i.e. they stray freely...)
 #' @param hyb_cat the hybrid category desired 
 #' @param L the number of loci to choose
 #' @param dir the path of the directory to create to put the result into.  It will 
@@ -104,7 +107,7 @@ create_hybrid_dataset <- function(SAR, wild_pop, hyb_cat, L, dir = "hyb_dir") {
   # scramble their haplotypes up
   Wf <- Test %>%
     filter(group == "wild") %>%
-    filter(pop == wild_pop) %>%
+    filter(pop %in% wild_pop) %>%
     scramble_founder_haplotypes(., V)
   
   Ff <- Test %>%
@@ -137,10 +140,21 @@ create_hybrid_dataset <- function(SAR, wild_pop, hyb_cat, L, dir = "hyb_dir") {
 
 See that that looks like:
 ```{r}
-create_hybrid_dataset(SAR, wild_pop = "LHR", hyb_cat = "F1", L = 2000, dir = "hyb_dir")
+AllPops <- c("BDN", "CNR", "GRR", "LHR", "LPR")
+create_hybrid_dataset(SAR, wild_pop = AllPops, hyb_cat = "F2", L = 5000, dir = "hyb_dir")
 ```
 
 Then we can do:
 ```sh
  ~/Documents/git-repos/newhybrids/newhybs -d nh_data.txt -g P0 1 0 0 -g p1 0 0 1 -g F1 0 1 0 -g F2 .25 .5 .25 -g BX0 .5 .5 0 -g BX1 0 .5 .5 --pi-prior fixed  1 1 1 1 1 1
 ```
+
+OK!  That is working pretty darn well.  NewHybrids converges very quickly.  I can easily get away with running it for 50 sweeps of 
+burn in and 200 of data collection, which should go pretty darn fast, and I could do that over many data sets, each one from 
+a different population.
+
+And I can also lump all the populations together. In fact, that will be just fine for F1s, always.  
+
+So, I only need to set up these simulations, write out all the data sets to directories with informative names,
+and then rip through them with Unix parallel.  Then we need a function to read in the output into one massive tidy 
+data frame for analysis.  
