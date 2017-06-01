@@ -22,8 +22,7 @@ First we ensure that we load each of the functions:
 ```{r}
 library(tidyverse)
 library(stringr)
-rfiles <- dir("R", full.names = TRUE)
-dump <- lapply(rfiles, source)
+library(SalarHybPower)
 ```
 
 We also want to have some example data.  We will just use the Nova Scotia data. But we will
@@ -57,11 +56,11 @@ Now we can make a group of wild and a group of farmed
 ```{r}
 Wf <- fake_dat %>%
     filter(group == "wild") %>%
-    scramble_founder_haplotypes(., fakeV)
+    SalarHybPower:::scramble_founder_haplotypes(., fakeV)
   
 Ff <- fake_dat %>%
   filter(group == "farmed") %>%
-  scramble_founder_haplotypes(., fakeV)
+  SalarHybPower:::scramble_founder_haplotypes(., fakeV)
 ```
 
 Then we can make hybrids out of those and count up the number of 1's and 2's in each
@@ -72,10 +71,10 @@ names(cats) <- cats
 
 wild_fracts <- lapply(cats, function(hyb_cat) {
   Hybs <- switch(hyb_cat,
-                 F1 = make_f1s(Wf, Ff),
-                 F2 = make_f2s(Wf, Ff),
-                 BX_wild = make_bxs(Wf, Ff),
-                 BX_farmed = make_bxs(Ff, Wf),
+                 F1 = SalarHybPower:::make_f1s(Wf, Ff),
+                 F2 = SalarHybPower:::make_f2s(Wf, Ff),
+                 BX_wild = SalarHybPower:::make_bxs(Wf, Ff),
+                 BX_farmed = SalarHybPower:::make_bxs(Ff, Wf),
                  stop("unknown hyb_cat: ", hyb_cat)
   )
   Hybs %>% 

@@ -28,8 +28,7 @@ First we ensure that we load each of the functions:
 ```{r}
 library(tidyverse)
 library(stringr)
-rfiles <- dir("R", full.names = TRUE)
-dump <- lapply(rfiles, source)
+library(SalarHybPower)
 ```
 
 We also want to have some example data.  We will just use the Nova Scotia data. But we will
@@ -46,13 +45,8 @@ dat <- readRDS("intermediates/01/tidy-west.rds") %>%
 We are going to have a single function that splits the same into training and test 
 and also ranks the loci.  It will return a list with components `split_dat` and `ranked_markers`.
 
-```{r}
-split_and_rank <- function(dat, train_fract = 0.5, min_dist = 6e04) {
-  A <- assign_train_test(dat, train_fract = train_fract) 
-  R <- compute_epp(A)
-  M <- marker_selection(R, min_dist = min_dist)
-  list(split_dat = A, ranked_markers = M)
-}
+```r
+`r paste(readLines("R/split_and_rank.R"), collapse = "\n")`
 ```
 So, it works like this:
 ```{r}
@@ -67,76 +61,11 @@ the scaled likelihoods for all these guys, it should be fine to just create ever
 (i.e. Pure, F1, F2, Bx, etc.)  And I need to do something about whether I want to only have 
 matings occur between individuals from the same population. (for F2s and BXs)
 
-Let's start writing it:
-```{r}
-#' @param SAR the output of split_and_rank()
-#' @param wild_pop a vector of the populations of wild fish to simulate from. It treats them
-#' as all being from the same population if they are included together.  This is not a 
-#' problem for F1's, but it is likely unrealistic for F2s and backcrosses. Unless the 
-#' F1 hybrids have no site fidelity (i.e. they stray freely...)
-#' @param hyb_cat the hybrid category desired 
-#' @param L the number of loci to choose
-#' @param dir the path of the directory to create to put the result into.  It will 
-#' write the result into a file called nh_input.txt
-create_hybrid_dataset <- function(SAR, wild_pop, hyb_cat, L, dir = "hyb_dir") {
-  
-  # Get the L markers. store their names in a vector called V (for variants)
-  V <- SAR$ranked_markers %>%
-    filter(selectable == TRUE & cumsum(selectable) <= L) %>%
-    .$variant  
-  
-  # break the data into training and test individuals
-  Train <- SAR$split_dat %>%
-    filter(test_or_train == "train")
-  Test <- SAR$split_dat %>%
-    filter(test_or_train == "test")
-  
-  # make the rows that the Train indivs will be in the newhybrids data set.
-  # note that "farmed" will always be species 0. 
-  trainNH <- list(
-    Train %>%
-      filter(group == "farmed") %>%
-      nh_tablify(., V, opt_str = "z0s", id_prepend = "train_"),
-    Train %>%
-      filter(group == "wild") %>%
-      nh_tablify(., V, opt_str = "z1s", id_prepend = "train_")
-  ) %>%
-    bind_rows()
-  
-  # now make the data frames that represent the wild and farmed founders and 
-  # scramble their haplotypes up
-  Wf <- Test %>%
-    filter(group == "wild") %>%
-    filter(pop %in% wild_pop) %>%
-    scramble_founder_haplotypes(., V)
-  
-  Ff <- Test %>%
-    filter(group == "farmed") %>%
-    scramble_founder_haplotypes(., V)
-  
-  
-  # now, simulate whatever type of hybrid was requested
-  Hybs <- switch(hyb_cat,
-         F1 = make_f1s(Wf, Ff),
-         F2 = make_f2s(Wf, Ff),
-         BX = make_bxs(Wf, Ff),
-         stop("unknown hyb_cat: ", hyb_cat)
-  )
-  
-  # and prepare each of those simulated individuals as a row in new-hybs file
-  hybsNH <- Hybs %>%
-    rename(`1` = hap1, `2` = hap2) %>%
-    tidyr::gather(data = ., key = "gene_copy", value = "allele", `1`, `2`) %>%
-    mutate(gene_copy = as.integer(gene_copy)) %>%
-    nh_tablify(., V, opt_str = "", id_prepend = "")
-  
-  # now, make the directory to write the result into
-  dir.create(dir)
-  bind_rows(trainNH, hybsNH) %>%
-    write_nh(., path = file.path(dir, "nh_data.txt"))
-  
-}
+It looks like this:
+```r
+`r paste(readLines("R/create_hybrid_dataset.R"), collapse = "\n")`
 ```
+
 
 See that that looks like:
 ```{r}
