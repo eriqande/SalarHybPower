@@ -91,7 +91,7 @@ pure.
 
 Let's try using fewer markers
 ```{r}
-create_hybrid_dataset(SAR, wild_pop = "LPR", hyb_cat = "F1", L = 1500, dir = "hyb_dir")
+create_hybrid_dataset(SAR, wild_pop = "GRR", hyb_cat = "PureW", L = 1500, dir = "hyb_dir")
 ```
 
 That seems to work correctly.
