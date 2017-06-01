@@ -56,6 +56,8 @@ create_hybrid_dataset <- function(SAR, wild_pop, hyb_cat, L, dir = "hyb_dir", fi
   
   # now, simulate whatever type of hybrid was requested
   Hybs <- switch(hyb_cat,
+                 PureW = make_pures(Wf),
+                 PureF = make_pures(Ff), 
                  F1 = make_f1s(Wf, Ff),
                  F2 = make_f2s(Wf, Ff),
                  BX = make_bxs(Wf, Ff),
