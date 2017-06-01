@@ -1,5 +1,5 @@
 
-#' Create a simulated data set for newhybrids using selected/ranked markers
+#' Create a simulated data set for newhybrids using dplyr::selected/ranked markers
 #' 
 #' We do this so that all the training individuals will end up with `z0s` or `z1s` in the data
 #' set, and then we make as many of the others as we can.  Since we are going to be just computing 
@@ -15,42 +15,42 @@
 #' @param L the number of loci to choose
 #' @param dir the path of the directory to create to put the result into.  It will 
 #' write the result into a file called \code{file_name}.
-#' @param file_name the name of the output file.  Defaults to "nh_input.txt".
+#' @param file_name the name of the output file.  Defaults to "nh_data.txt".
 #' @export
-create_hybrid_dataset <- function(SAR, wild_pop, hyb_cat, L, dir = "hyb_dir", file_name = "nh_input.txt") {
+create_hybrid_dataset <- function(SAR, wild_pop, hyb_cat, L, dir = "hyb_dir", file_name = "nh_data.txt") {
   
   # Get the L markers. store their names in a vector called V (for variants)
   V <- SAR$ranked_markers %>%
-    filter(selectable == TRUE & cumsum(selectable) <= L) %>%
+    dplyr::filter(selectable == TRUE & cumsum(selectable) <= L) %>%
     .$variant  
   
   # break the data into training and test individuals
   Train <- SAR$split_dat %>%
-    filter(test_or_train == "train")
+    dplyr::filter(test_or_train == "train")
   Test <- SAR$split_dat %>%
-    filter(test_or_train == "test")
+    dplyr::filter(test_or_train == "test")
   
   # make the rows that the Train indivs will be in the newhybrids data set.
   # note that "farmed" will always be species 0. 
   trainNH <- list(
     Train %>%
-      filter(group == "farmed") %>%
+      dplyr::filter(group == "farmed") %>%
       nh_tablify(., V, opt_str = "z0s", id_prepend = "train_"),
     Train %>%
-      filter(group == "wild") %>%
+      dplyr::filter(group == "wild") %>%
       nh_tablify(., V, opt_str = "z1s", id_prepend = "train_")
   ) %>%
-    bind_rows()
+    dplyr::bind_rows()
   
   # now make the data frames that represent the wild and farmed founders and 
   # scramble their haplotypes up
   Wf <- Test %>%
-    filter(group == "wild") %>%
-    filter(pop %in% wild_pop) %>%
+    dplyr::filter(group == "wild") %>%
+    dplyr::filter(pop %in% wild_pop) %>%
     scramble_founder_haplotypes(., V)
   
   Ff <- Test %>%
-    filter(group == "farmed") %>%
+    dplyr::filter(group == "farmed") %>%
     scramble_founder_haplotypes(., V)
   
   
@@ -64,14 +64,14 @@ create_hybrid_dataset <- function(SAR, wild_pop, hyb_cat, L, dir = "hyb_dir", fi
   
   # and prepare each of those simulated individuals as a row in new-hybs file
   hybsNH <- Hybs %>%
-    rename(`1` = hap1, `2` = hap2) %>%
+    dplyr::rename(`1` = hap1, `2` = hap2) %>%
     tidyr::gather(data = ., key = "gene_copy", value = "allele", `1`, `2`) %>%
-    mutate(gene_copy = as.integer(gene_copy)) %>%
+    dplyr::mutate(gene_copy = as.integer(gene_copy)) %>%
     nh_tablify(., V, opt_str = "", id_prepend = "")
   
   # now, make the directory to write the result into
   dir.create(dir)
-  bind_rows(trainNH, hybsNH) %>%
-    write_nh(., path = file.path(dir, "nh_data.txt"))
+  dplyr::bind_rows(trainNH, hybsNH) %>%
+    write_nh(., path = file.path(dir, file_name))
   
 }

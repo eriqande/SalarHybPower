@@ -22,7 +22,7 @@ Basically, it takes individuals that have haplotypes in hap1 and hap2, and it
 segregates two gametes for each individual (with recombination) and then those
 get combined with gametes from other individuals.  If there are W indivs in
 Wf and F indivs in Ff, this function will return 2 * min(W, F) offspring from mating between
-min(W, F) randomly selected individuals in Wf and Ff.
+min(W, F) randomly dplyr::selected individuals in Wf and Ff.
 }
 \keyword{internal}
 

@@ -8,7 +8,7 @@ write_nh(G, path = "nh_data.txt")
 }
 \arguments{
 \item{G}{a data frame like that prepared by nh_tablify, or perhaps several of those
-that have been bind_rows()-ed together.}
+that have been dplyr::bind_rows()-ed together.}
 
 \item{path}{the file path you want to write to.}
 }

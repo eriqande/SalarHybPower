@@ -2,10 +2,10 @@
 % Please edit documentation in R/create_hybrid_dataset.R
 \name{create_hybrid_dataset}
 \alias{create_hybrid_dataset}
-\title{Create a simulated data set for newhybrids using selected/ranked markers}
+\title{Create a simulated data set for newhybrids using dplyr::selected/ranked markers}
 \usage{
 create_hybrid_dataset(SAR, wild_pop, hyb_cat, L, dir = "hyb_dir",
-  file_name = "nh_input.txt")
+  file_name = "nh_data.txt")
 }
 \arguments{
 \item{SAR}{the output of split_and_rank()}
@@ -22,7 +22,7 @@ F1 hybrids have no site fidelity (i.e. they stray freely...)}
 \item{dir}{the path of the directory to create to put the result into.  It will 
 write the result into a file called \code{file_name}.}
 
-\item{file_name}{the name of the output file.  Defaults to "nh_input.txt".}
+\item{file_name}{the name of the output file.  Defaults to "nh_data.txt".}
 }
 \description{
 We do this so that all the training individuals will end up with `z0s` or `z1s` in the data

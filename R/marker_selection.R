@@ -1,4 +1,4 @@
-#' Select most informative markers on chromosomes
+#' select most informative markers on chromosomes
 #'
 #' Does not select markers that are within min_dist base pairs
 #' of a previously selected marker.
@@ -10,19 +10,19 @@
 #' @keywords internal
 marker_selection <- function(R, min_dist = 6e04) {
   # first we need to whittle R down to only 1 row per variant, and just keep the epp
-  # and we want to arrange on chrom then epp
+  # and we want to dplyr::arrange on chrom then epp
   R1 <- R %>%
-    group_by(chrom, coord, variant) %>%
-    summarise(epp = first(epp)) %>%
-    ungroup() %>%
-    arrange(chrom, desc(epp))
+    dplyr::group_by(chrom, coord, variant) %>%
+    dplyr::summarise(epp = first(epp)) %>%
+    dplyr::ungroup() %>%
+    dplyr::arrange(chrom, desc(epp))
 
   R1 %>%
-    arrange(chrom, desc(epp)) %>%
-    group_by(chrom) %>%
-    mutate(selectable = ranked_selector(coord, min_dist)) %>%
-    ungroup() %>%
-    arrange(desc(epp))
+    dplyr::arrange(chrom, desc(epp)) %>%
+    dplyr::group_by(chrom) %>%
+    dplyr::mutate(selectable = ranked_selector(coord, min_dist)) %>%
+    dplyr::ungroup() %>%
+    dplyr::arrange(desc(epp))
 }
 
 
@@ -31,7 +31,7 @@ marker_selection <- function(R, min_dist = 6e04) {
 #'
 #' this is a very internal function.  Users should never see this.
 #' @param co a vector of base pair coordinates ranked descending on epp
-#' @param md the min_dist allowed between a new SNP and any other selected ones
+#' @param md the min_dist allowed between a new SNP and any other dplyr::selected ones
 #' @keywords internal
 ranked_selector <- function(bp, md) {
   N <- length(bp)

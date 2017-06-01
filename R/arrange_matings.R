@@ -10,22 +10,22 @@
 arrange_matings <- function(A, B) {
 
   n <-  min(nrow(A), nrow(B))
-  Atib <- tibble(id = rep(sample(A$id, size = n, replace = FALSE), each = 2))  %>%
-    mutate(gam = rep(c(1,2), length.out = n())) %>%
-    sample_n(size = nrow(.), replace = FALSE)
-  Btib <- tibble(id = rep(sample(B$id, size = n, replace = FALSE), each = 2))  %>%
-    mutate(gam = rep(c(1,2), length.out = n())) %>%
-    sample_n(size = nrow(.), replace = FALSE)
+  Atib <- tibble::tibble(id = rep(sample(A$id, size = n, replace = FALSE), each = 2))  %>%
+    dplyr::mutate(gam = rep(c(1,2), length.out = n())) %>%
+    dplyr::sample_n(size = nrow(.), replace = FALSE)
+  Btib <- tibble::tibble(id = rep(sample(B$id, size = n, replace = FALSE), each = 2))  %>%
+    dplyr::mutate(gam = rep(c(1,2), length.out = n())) %>%
+    dplyr::sample_n(size = nrow(.), replace = FALSE)
 
 
-  Atib2 <- left_join(Atib, A)
+  Atib2 <- dplyr::left_join(Atib, A)
   names(Atib2) <- paste(names(Atib2), "A", sep = "_")
-  Btib2 <- left_join(Btib, B)
+  Btib2 <- dplyr::left_join(Btib, B)
   names(Btib2) <- paste(names(Btib2), "B", sep = "_")
 
-  F1s <- bind_cols(Atib2, Btib2) %>%
-    mutate(id = paste("F1", 1:n(), sep = "_")) %>%
-    select(id, everything())
+  F1s <- dplyr::bind_cols(Atib2, Btib2) %>%
+    dplyr::mutate(id = paste("F1", 1:n(), sep = "_")) %>%
+    dplyr::select(id, dplyr::everything())
 
   return(F1s)
 }

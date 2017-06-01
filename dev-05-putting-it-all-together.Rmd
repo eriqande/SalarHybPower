@@ -70,7 +70,7 @@ It looks like this:
 See that that looks like:
 ```{r}
 AllPops <- c("BDN", "CNR", "GRR", "LHR", "LPR")
-create_hybrid_dataset(SAR, wild_pop = AllPops, hyb_cat = "F2", L = 5000, dir = "hyb_dir")
+create_hybrid_dataset(SAR, wild_pop = AllPops, hyb_cat = "F1", L = 5000, dir = "hyb_dir")
 ```
 
 Then we can do:
@@ -80,9 +80,22 @@ Then we can do:
 
 OK!  That is working pretty darn well.  NewHybrids converges very quickly.  I can easily get away with running it for 50 sweeps of 
 burn in and 200 of data collection, which should go pretty darn fast, and I could do that over many data sets, each one from 
-a different population.
+a different population.  But it looks little funky.  There are some individuals looking pure in there that should not be.
 
-And I can also lump all the populations together. In fact, that will be just fine for F1s, always.  
+But, with 5K markers, newhybrids starts to throw this error:
+```
+WARNING: i=6 >= Num=6 in IntegerFromProbsRV().  Probably only a problem while initializing the chain.  i reset to 0
+```
+Turn out that this is a problem during more than just initialization---you end up with salmon that are clearly F1s being called
+pure.
+
+Let's try using fewer markers
+```{r}
+create_hybrid_dataset(SAR, wild_pop = "LPR", hyb_cat = "F1", L = 1500, dir = "hyb_dir")
+```
+
+That seems to work correctly.
+
 
 So, I only need to set up these simulations, write out all the data sets to directories with informative names,
 and then rip through them with Unix parallel.  Then we need a function to read in the output into one massive tidy 

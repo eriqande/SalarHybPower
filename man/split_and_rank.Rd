@@ -13,8 +13,8 @@ chrom, coord, pop, group.}
 \item{train_fract}{fraction of individuals from each group (and pop, too) to 
 assign to the training set.}
 
-\item{min_dist}{the number of base pairs below which you will not select a marker if
-another one within min_dist on the same chromosome has already been selected.}
+\item{min_dist}{the number of base pairs below which you will not dplyr::select a marker if
+another one within min_dist on the same chromosome has already been dplyr::selected.}
 }
 \value{
 a list with components `split_dat` and `ranked_markers`.

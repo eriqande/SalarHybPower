@@ -17,12 +17,12 @@ make_f2s <- function(Wf, Ff) {
 
   # now make new Wf and new Ff and run them back through make_F1s
   F1_clean <- F1 %>%
-    select(-ends_with("_A"), -ends_with("_B"))
+    dplyr::select(-ends_with("_A"), -ends_with("_B"))
 
-  newWf <- F1_clean %>% filter(id %in% idA)
-  newFf <- F1_clean %>% filter(id %in% idB)
+  newWf <- F1_clean %>% dplyr::filter(id %in% idA)
+  newFf <- F1_clean %>% dplyr::filter(id %in% idB)
 
   F2 <- make_f1s(newWf, newFf) %>%
-    mutate(id = stringr::str_replace(id, "^F1", "F2"))
+    dplyr::mutate(id = stringr::str_replace(id, "^F1", "F2"))
 
 }

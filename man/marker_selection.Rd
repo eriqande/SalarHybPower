@@ -2,7 +2,7 @@
 % Please edit documentation in R/marker_selection.R
 \name{marker_selection}
 \alias{marker_selection}
-\title{Select most informative markers on chromosomes}
+\title{select most informative markers on chromosomes}
 \usage{
 marker_selection(R, min_dist = 60000)
 }

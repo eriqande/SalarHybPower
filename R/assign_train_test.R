@@ -9,11 +9,11 @@
 #' @keywords internal
 assign_train_test <- function(dat, train_fract = 0.5) {
   d2 <- dat %>%
-    distinct(id, pop, group) %>%
-    group_by(group, pop) %>%
-  mutate(test_or_train = sample(c(rep("train", ceiling(train_fract * n())),
+    dplyr::distinct(id, pop, group) %>%
+    dplyr::group_by(group, pop) %>%
+  dplyr::mutate(test_or_train = sample(c(rep("train", ceiling(train_fract * n())),
                                   rep("test", n() - ceiling(train_fract * n()))
                                   )))
 
-  left_join(dat, d2)
+  dplyr::left_join(dat, d2)
 }

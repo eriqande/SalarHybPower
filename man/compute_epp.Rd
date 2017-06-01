@@ -11,7 +11,7 @@ compute_epp(D)
 }
 \value{
 a data frame that includes variant, chrom, coord, allele then has
-two columns of allele counts (farmed and wild) taken only from the "train"
+two columns of allele dplyr::counts (farmed and wild) taken only from the "train"
 individuals and then two columns of allele freqs (with the 1/2 correction
 in there) and  epp computed from those allele freqs.
 }

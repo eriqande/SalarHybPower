@@ -14,15 +14,15 @@ plink2tidy <- function(ped, map) {
   # now we gather p and drop the columns that are not relevant here
   # and then split the gene copies up
   pt <- p %>%
-    select(-(fid:d4)) %>%
+    dplyr::select(-(fid:d4)) %>%
     tidyr::gather(data = ., key = "snp_and_gc", value = "allele", -id) %>%
     tidyr::separate(data = ., col = snp_and_gc, into = c("variant", "gene_copy"), sep = " ", convert = TRUE)
 
 
   # now bind the marker information on there and make chrom a factor so it sorts in the right order
-  mp <- left_join(pt, m %>% select(-dummy)) %>%
-    mutate(chrom = factor(chrom, levels = unique(m$chrom))) %>%
-    arrange(chrom, coord, id, gene_copy)
+  mp <- dplyr::left_join(pt, m %>% dplyr::select(-dummy)) %>%
+    dplyr::mutate(chrom = factor(chrom, levels = unique(m$chrom))) %>%
+    dplyr::arrange(chrom, coord, id, gene_copy)
 
   # return that
   mp

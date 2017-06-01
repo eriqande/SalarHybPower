@@ -8,8 +8,8 @@
 #' chrom, coord, pop, group.  
 #' @param train_fract fraction of individuals from each group (and pop, too) to 
 #' assign to the training set.
-#' @param min_dist the number of base pairs below which you will not select a marker if
-#' another one within min_dist on the same chromosome has already been selected.
+#' @param min_dist the number of base pairs below which you will not dplyr::select a marker if
+#' another one within min_dist on the same chromosome has already been dplyr::selected.
 #' @return a list with components `split_dat` and `ranked_markers`.
 #' @export
 split_and_rank <- function(dat, train_fract = 0.5, min_dist = 6e04) {

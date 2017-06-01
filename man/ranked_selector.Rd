@@ -7,7 +7,7 @@
 ranked_selector(bp, md)
 }
 \arguments{
-\item{md}{the min_dist allowed between a new SNP and any other selected ones}
+\item{md}{the min_dist allowed between a new SNP and any other dplyr::selected ones}
 
 \item{co}{a vector of base pair coordinates ranked descending on epp}
 }

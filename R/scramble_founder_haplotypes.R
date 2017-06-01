@@ -11,13 +11,13 @@
 scramble_founder_haplotypes <- function(D, V) {
   # make one column for each gene copy
   D1 <- D %>%
-    ungroup() %>%
-    filter(variant %in% V) %>%
+    dplyr::ungroup() %>%
+    dplyr::filter(variant %in% V) %>%
     tidyr::spread(data = ., key = gene_copy, value = allele) %>%
-    mutate(segind = sample(x = c(T,F), size = n(), replace = TRUE),
+    dplyr::mutate(segind = sample(x = c(T,F), size = n(), replace = TRUE),
            hap1 = ifelse(segind, `1`, `2`),
            hap2 = ifelse(segind, `2`, `1`)) %>%
-    select(-`1`, -`2`, -segind) %>%
-    arrange(id, chrom, coord)
+    dplyr::select(-`1`, -`2`, -segind) %>%
+    dplyr::arrange(id, chrom, coord)
 
 }

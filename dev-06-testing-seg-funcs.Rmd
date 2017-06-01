@@ -113,3 +113,29 @@ That looks right.  Now, I think it would be great to give each founder individua
 haplotype a separate allele and then run through this so that we can easily count
 up how many recombination breaks there are on the resulting chromosomes.
 
+## First, another test
+
+I am getting weird results with `create_hybrid_dataset()`.  Let's see if we can duplicate it here:
+```{r}
+SAR <- split_and_rank(fake_dat)
+AllPops <- c("BDN", "CNR", "GRR", "LHR", "LPR")
+create_hybrid_dataset(SAR, wild_pop = AllPops, hyb_cat = "F1", L = 5000, dir = "hyb_dir")
+```
+The data here look right, but newhybs chokes on it.
+
+Try a smaller data set:
+```{r}
+create_hybrid_dataset(SAR, wild_pop = AllPops, hyb_cat = "F1", L = 50, dir = "hyb_dir")
+```
+
+That gives reasonable results.  So, I think we have a weird underflow problem in newhybrids, as this chokes:
+```{r}
+create_hybrid_dataset(SAR, wild_pop = AllPops, hyb_cat = "F1", L = 2000, dir = "hyb_dir")
+```
+
+Yep, it is the dreaded:
+```
+WARNING: i=6 >= Num=6 in IntegerFromProbsRV().  Probably only a problem while initializing the chain.  i reset to 0
+```
+which occurs when we have too many markers.
+

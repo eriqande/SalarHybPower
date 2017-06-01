@@ -10,23 +10,23 @@
 #' @keywords internal
 nh_tablify <- function(D, V, opt_str = "", id_prepend = "") {
   D1 <- D %>%
-    filter(variant %in% V)
+    dplyr::filter(variant %in% V)
 
   common_loc <- V[V %in% D1$variant]  # these are the loci from V that are in D, in V-order
 
   # now spread the gene copies and then the variants
   D1 %>%
-    select(id, variant, gene_copy, allele) %>%
+    dplyr::select(id, variant, gene_copy, allele) %>%
     tidyr::spread(data = ., key = gene_copy, value = allele) %>%
-    mutate(gc1 = as.integer(ifelse(is.na(`1`) | is.na(`2`), -1, `1`)),  # make both -1 if either of them is -1
+    dplyr::mutate(gc1 = as.integer(ifelse(is.na(`1`) | is.na(`2`), -1, `1`)),  # make both -1 if either of them is -1
            gc2 = as.integer(ifelse(is.na(`2`) | is.na(`1`), -1, `2`))) %>%
-    select(-`1`, -`2`) %>%
-    mutate(geno = paste(gc1, gc2, sep = " ")) %>%
-    select(-gc1, -gc2) %>%
+    dplyr::select(-`1`, -`2`) %>%
+    dplyr::mutate(geno = paste(gc1, gc2, sep = " ")) %>%
+    dplyr::select(-gc1, -gc2) %>%
     tidyr::spread(data = ., key = variant, value = geno, fill = "-1 -1") %>%
     .[, c("id", common_loc)] %>%
-    mutate(option = opt_str) %>%
-    mutate(id = paste(id_prepend, id, sep = "")) %>%
-    select(id, option, everything())
+    dplyr::mutate(option = opt_str) %>%
+    dplyr::mutate(id = paste(id_prepend, id, sep = "")) %>%
+    dplyr::select(id, option, dplyr::everything())
 
 }

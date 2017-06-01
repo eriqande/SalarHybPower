@@ -8,16 +8,16 @@
 #' @keywords internal
 segregate_gametes <- function(H, Mb_recomb_prob = 0.01) {
   H %>%
-    arrange(id, chrom, coord) %>%
-    group_by(id, chrom) %>%
-    mutate(recom_prob = (coord - dplyr::lag(coord, 1)) * 0.01 / 10^6,
+    dplyr::arrange(id, chrom, coord) %>%
+    dplyr::group_by(id, chrom) %>%
+    dplyr::mutate(recom_prob = (coord - dplyr::lag(coord, 1)) * 0.01 / 10^6,
            recom_prob = ifelse(is.na(recom_prob), 0, recom_prob),
            start_value = sample(c(0,1), size = 1),
            cumul_xovers = start_value + cumsum(runif(n = n()) < recom_prob)) %>%
     # now, if cumum_xovers is even, gam1 is from hap1 and gam2 is from hap2.  Otherwise
     # gam1 is from hap2 and gam2 is from hap1
-    mutate(gam1 = ifelse(cumul_xovers %% 2 == 0, hap1, hap2),
+    dplyr::mutate(gam1 = ifelse(cumul_xovers %% 2 == 0, hap1, hap2),
            gam2 = ifelse(cumul_xovers %% 2 == 0, hap2, hap1)) %>%
-    select(-recom_prob, -start_value, -cumul_xovers) %>%
-    ungroup()
+    dplyr::select(-recom_prob, -start_value, -cumul_xovers) %>%
+    dplyr::ungroup()
 }
