@@ -1,9 +1,11 @@
-
-
+#' Segregate the markers on two haploypes on each individual into two gametes.
+#'
+#' Used internally.
 #' @param H a data frame like the one that comes out of scramble_founder_haplotypes().  It has
 #' to have hap1 and hap2 columns.
-#' @param Mb_recomb_prob the probability of recombination over 10^6 bp (one Mb).  
+#' @param Mb_recomb_prob the probability of recombination over 10^6 bp (one Mb).
 #' By default this is set to 0.01 (i.e. a centi-Morgan).
+#' @keywords internal
 segregate_gametes <- function(H, Mb_recomb_prob = 0.01) {
   H %>%
     arrange(id, chrom, coord) %>%

@@ -1,8 +1,12 @@
+#' Compute the expected posterior probability of assignment of gene copies.
+#'
+#' See the notebooks for an explanation.
 #' @param D a data frame like that returned by assign_train_test()
 #' @return a data frame that includes variant, chrom, coord, allele then has
 #' two columns of allele counts (farmed and wild) taken only from the "train"
 #' individuals and then two columns of allele freqs (with the 1/2 correction
 #' in there) and  epp computed from those allele freqs.
+#' @keywords internal
 compute_epp <- function(D) {
   D %>%
     filter(test_or_train == "train") %>%
