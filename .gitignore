@@ -3,7 +3,9 @@
 .RData
 .Ruserdata
 
-
+nh_reps_directory
+para-comms.txt
+hyb_dir
 *.nb.html
 scratch/*
 data/processed

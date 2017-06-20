@@ -45,8 +45,8 @@ not worry about the number of individuals we get from each population.  Let's ju
 Set up some info for the sims:
 ```{r}
 SPLITS <- 3 # the number of times to split the data and rank markers
-LOCS <- c(100, 250, 500, 1000)  # number of loci
-POPLIST <- c("BDN", "CNR", "GRR", "LHR", "LPR")  # names of populations
+LOCS <- c(24, 48, 144, 192, 480, 720, 1000)  # number of loci
+POPLIST <- c("BDN", "CNR", "GRR", "LHR", "LPR")  # names of wild populations
 HYB_CATS <- c("PureW", "PureF", "F1", "F2", "BX")
 ```
 
@@ -71,10 +71,59 @@ for (s in 1:SPLITS) {
 
 ```
 
-That creates 300 directories, each with a single simulated data set in it.  Now I just need to run NewHybrids over each like this:
+That takes a few minutes and creates a large number of directories, (like 525 or so), each with a single simulated data set in it.  
+The directories are named like this: `1_GRR_PureF_480`  which denotes:
+
+- Split = 1
+- Population = GRR
+- Simulated hybrid category = Pure Farmed
+- Number of loci = 480
+
+
+
+
+Now I just need to run NewHybrids over each like this:
 ```sh
 ~/Documents/git-repos/newhybrids/newhybs -d nh_data.txt -g P0 1 0 0 -g p1 0 0 1 -g F1 0 1 0 -g F2 .25 .5 .25 -g BX0 .5 .5 0 -g BX1 0 .5 .5 --pi-prior fixed  1 1 1 1 1 1
 ```
 
-Then slurp the output up and analyse it.
+We will do that using the GNU parallel script.
+
+## Creating a GNU parallel script
+
+We could use the `parallel` R package, but I have had better success using GNU parallel -- a Perl script.  I have included it in the 
+`bin` directory in the repo.
+
+We basically need to write a series of shell commands, each one launching newhybrids on a different data set.
+
+We can use R to write those out.  Note that this all assumes that the `nh_reps_directory` is in the top level
+of the repository, and that the command to run parallel will be given in that nh_reps_directory.
+Note that it is imporant to divert stderr to a newhybs_stderr file so we can search for cases
+that had underflow issues.  I am going to do 100 burn in and 500 sweeps, cuz we can do short runs
+when we are working with having some indivs of known origin.
+```{r}
+comms <- lapply(dir("nh_reps_directory"), function(x) {
+  paste0("echo \"Starting ", 
+         x, 
+         " at $(date)\"; cd ", 
+         x, 
+         "; ../../bin/newhybs -d nh_data.txt -g P0 1 0 0 -g p1 0 0 1 -g F1 0 1 0 -g F2 .25 .5 .25 -g BX0 .5 .5 0 -g BX1 0 .5 .5 --pi-prior fixed  1 1 1 1 1 1 --no-gui --burn-in 100 --num-sweeps 500 --seeds ",
+         paste(ceiling(runif(2, min = 100, max = 10000000)), collapse = " "), 
+         " > newhybs_stdout.txt 2> newhybs_stderr.txt; cd ..; echo \"Done with ", x, " at $(date)\"")
+})
+cat(unlist(comms), sep = "\n", file = "para-comms.txt")
+```
+
+I synced all that to our 24 core box and then did:
+```sh
+2017-06-20 14:44 /nh_reps_directory/--% (master) pwd
+/Users/eriq/Documents/git-repos/SalarHybPower/nh_reps_directory
+
+# then put it on 22 cores:
+2017-06-20 14:45 /nh_reps_directory/--% (master) cat ../para-comms.txt | ../bin/parallel -P22 > ../BIG_LOG.txt &
+
+```
+
+When doing such short runs, this seems to take less than an hour...
+
 
