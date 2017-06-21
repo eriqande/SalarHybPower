@@ -21,4 +21,3 @@ homologous chromosomes.  This gets sorted by id, chrom, and coord.
 blah blah
 }
 \keyword{internal}
-

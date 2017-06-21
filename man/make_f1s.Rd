@@ -25,4 +25,3 @@ Wf and F indivs in Ff, this function will return 2 * min(W, F) offspring from ma
 min(W, F) randomly dplyr::selected individuals in Wf and Ff.
 }
 \keyword{internal}
-

@@ -23,4 +23,3 @@ a list with components `split_dat` and `ranked_markers`.
 We are going to have a single function that splits the same into training and test 
 and also ranks the loci.
 }
-

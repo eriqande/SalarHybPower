@@ -22,4 +22,3 @@ founders then the haplotypes should have been scrambled first, using
 blab
 }
 \keyword{internal}
-

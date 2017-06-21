@@ -21,4 +21,3 @@ This also makes both gene copies missing if only one of them was.  This happens 
 simulated hybrids, so obviously must be dealt with.
 }
 \keyword{internal}
-

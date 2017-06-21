@@ -20,4 +20,3 @@ has entries of "test" or "train" as appropriate for each fish id.
 Simple version that does a fixed fraction from each pop
 }
 \keyword{internal}
-

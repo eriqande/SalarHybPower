@@ -20,4 +20,3 @@ founders then the haplotypes should have been scrambled first, using
 internal function
 }
 \keyword{internal}
-

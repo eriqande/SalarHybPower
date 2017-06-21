@@ -66,15 +66,18 @@ Ff <- fake_dat %>%
 Then we can make hybrids out of those and count up the number of 1's and 2's in each
 individual.
 ```{r}
-cats <- c("F1", "F2", "BX_wild", "BX_farmed")
+cats <- c("PureF", "PureW", "F1", "F2", "BX_wild", "BX_farmed")
 names(cats) <- cats
 
 wild_fracts <- lapply(cats, function(hyb_cat) {
   Hybs <- switch(hyb_cat,
+                 PureF = SalarHybPower:::make_pures(Ff),
+                 PureW = SalarHybPower:::make_pures(Wf),
                  F1 = SalarHybPower:::make_f1s(Wf, Ff),
                  F2 = SalarHybPower:::make_f2s(Wf, Ff),
                  BX_wild = SalarHybPower:::make_bxs(Wf, Ff),
                  BX_farmed = SalarHybPower:::make_bxs(Ff, Wf),
+                 
                  stop("unknown hyb_cat: ", hyb_cat)
   )
   Hybs %>% 
@@ -85,7 +88,8 @@ wild_fracts <- lapply(cats, function(hyb_cat) {
 })
 
 wf_df <- wild_fracts %>%
-  bind_rows(.id = "hyb_cat")
+  bind_rows(.id = "hyb_cat") %>%
+  mutate(chrom = as.character(chrom))
 
 ```
 
@@ -95,6 +99,7 @@ gcat_props <- wf_df %>%
   group_by(hyb_cat, id, genotype_cat) %>%
   tally() %>%
   mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
   mutate(genotype_cat = factor(genotype_cat))
 ```
 

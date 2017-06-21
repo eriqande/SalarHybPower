@@ -31,4 +31,3 @@ the scaled likelihoods for all these guys, it is fine to just create everyone to
 (i.e. Pure, F1, F2, Bx, etc.)  This let's you make sure that backcrosses are all within the same
 population.
 }
-

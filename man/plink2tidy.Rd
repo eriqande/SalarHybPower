@@ -14,4 +14,3 @@ plink2tidy(ped, map)
 \description{
 This  might be useful to users.
 }
-

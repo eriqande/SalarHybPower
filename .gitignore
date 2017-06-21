@@ -9,3 +9,4 @@ hyb_dir
 *.nb.html
 scratch/*
 data/processed
+.DS_Store

@@ -39,7 +39,8 @@ dat %>%
 
 This means that if we are doing F2's for LHR we will only be able to make 4 or 5 per time,
 and for backcrosses, we will only get about 4 per data set out of them.  OK.  Well, let us 
-not worry about the number of individuals we get from each population.  Let's just do REPS reps...
+not worry about the number of individuals we get from each population.  Let's just do SPLITS 
+different splits of the data into training and holdout...
 
 
 Set up some info for the sims:
@@ -51,7 +52,7 @@ HYB_CATS <- c("PureW", "PureF", "F1", "F2", "BX")
 ```
 
 Then just cycle over things and do it
-```{r}
+```{r, eval=FALSE}
 main_out_dir <- "nh_reps_directory"
 dir.create(main_out_dir)
 set.seed(555)
@@ -114,7 +115,7 @@ comms <- lapply(dir("nh_reps_directory"), function(x) {
 cat(unlist(comms), sep = "\n", file = "para-comms.txt")
 ```
 
-I synced all that to our 24 core box and then did:
+I synced all that to our 24 core box and then put the runs on 22 cores:
 ```sh
 2017-06-20 14:44 /nh_reps_directory/--% (master) pwd
 /Users/eriq/Documents/git-repos/SalarHybPower/nh_reps_directory
@@ -126,4 +127,118 @@ I synced all that to our 24 core box and then did:
 
 When doing such short runs, this seems to take less than an hour...
 
+## Slurping up the output
 
+Since this is on the big machine at work, it will be easiest for me to grab
+the output using awk over ssh:
+```sh
+2017-06-21 05:57 /nh_reps_directory/--% (master) pwd
+/Users/eriq/Documents/git-repos/SalarHybPower/nh_reps_directory
+
+for i in *; do 
+  warn=$(wc -l $i/newhybs_stderr.txt | awk '{print $1}'); 
+  awk -v w=$warn -v i=$i 'NR>1 && !/train_/ {print i, w, $0}' $i/aa-PofZ.txt;
+done  > ../3_splits_output.txt
+
+
+```
+Then I gzipped that and brought it over to the `outputs` folder in the repository (but which 
+I won't commit...)
+
+## Reading in the output, and making a quick plot
+
+First, a job for readr:
+```{r}
+nh_output <- read_table2("outputs/3_splits_output.txt.gz",   # requires readr 1.1.1
+                         col_names = c("sim", "warn", "idx", "iname", 
+                                       "pure_farmed", "pure_wild", "F1", "F2", "bx_farm", "bx_wild"))
+```
+
+Then separate some columns and then gather
+```{r}
+nh_sepped <- nh_output %>%
+  separate(col = sim, into = c("split", "pop", "true_hyb_cat", "num_loci"), sep = "_", convert = TRUE) %>%
+  separate(col = iname, into = c("drop", "s_idx"), sep = "_", convert = TRUE) %>% 
+  mutate(s_idx = paste("split", split, s_idx, sep = "_")) %>%
+  select(-drop) 
+
+
+```
+
+Really quickly, check which runs received warnings:
+```{r}
+nh_sepped %>%
+  filter(warn > 0)
+```
+
+OK, all of them have num_loci = 1000.
+
+Let's just filter out the ones that had warnings and gather it, and make a infferred_hyb_cat a
+factor so it comes out in a good order in the plots.
+```{r}
+nh_tidy <- nh_sepped %>% 
+  filter(warn == 0) %>% 
+  gather(key = "inferred_hyb_cat", value = "post_prob", pure_farmed:bx_wild) %>%
+  mutate(inferred_hyb_cat = factor(inferred_hyb_cat, levels = c("bx_wild", "bx_farm", "F2", "F1", "pure_wild", "pure_farmed")))
+
+# and save this
+saveRDS(nh_tidy, file = "outputs/3_splits_nh_tidy.rds", compress = "xz")
+```
+
+And now we should be able to plot it.
+```{r}
+# some colors that might work out better than ggplots defaults
+hc_colors <- c(
+  pure_farmed = rgb(152, 78, 163, maxColorValue = 255), # purple
+  pure_wild = rgb(77, 175, 74, maxColorValue = 255), # green
+  F1 = rgb(255, 255, 51, maxColorValue = 255),  # yellow
+  F2 = rgb(247, 129, 191, maxColorValue = 255), # pink
+  bx_wild = rgb(255, 127, 0, maxColorValue = 255),  # orange
+  bx_farm = rgb(228, 26, 28, maxColorValue = 255) # red
+)
+
+nh_list <- nh_tidy %>% 
+  split(., .$true_hyb_cat)
+
+gg_list <- lapply(nh_list, function(x) {
+  g <- ggplot(x, aes(x = s_idx, y = post_prob, fill = inferred_hyb_cat)) +
+    geom_col() +
+    facet_grid(num_loci ~ pop) +
+    scale_fill_manual(values = hc_colors)
+  
+  g
+})
+
+dump <- lapply(names(gg_list), function(n) {
+  ggsave(gg_list[[n]], 
+         filename = paste0("outputs/first_look_", n, ".pdf"),
+         width = 10, 
+         height = 10)})
+```
+
+I will send those figures to Brendan.
+
+From my first looking over of them, there are a couple of trends it seems to me:
+
+- Populations with fewer individuals have fewer simulated individuals---that is why there are gaps in there.
+(though some of the big gaps at 1000 loci are due to the fact that newhybrids has underflow problems with 
+lots of loci.)
+
+- It is important to understand that I simulated individuals from separate populations rather
+than slurrying their alleles together to make a mean-wild-allele-freq pool.  From the results, it is
+clear that different populations must have different allele frequencies, such that when all the training individuals
+are used as reference wild and farmed fish with the `z` option in NewHybrids, some wild fish of some populations
+end up looking like bx_wilds, etc.  _and_ some pure Farmed fish look like bx_farms.  The latter is not so bad, I would think,
+because you don't really expect bx_farmed to occur, as often in the populations.
+
+- It is interesting that the truly-pure farmed fish are incorrectly inferred to be bx_farm fish at a higher rate with
+more loci.  I have checked my simulation programs and I don't think they are incorrect.  I think it might have to do 
+with using a mixture of populations in the fish with the `z` option.
+
+- It might be better to run newhybrids with wild training individuals being included and getting the `z` option
+_only if they are from the same population as the sampled (simulated) hybrids._  This is the next thing I need 
+to get on, but wanted to send these results on for now.
+
+- For some of the populations, like BDN, CNR, and LHR it looks like hybrids/farmed fish can be identified
+pretty reliably.  For GRR and LPR, it is a little tougher as there is a lot of overlap between pure wild and 
+backcrossed fish.  

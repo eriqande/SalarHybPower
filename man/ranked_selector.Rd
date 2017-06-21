@@ -15,4 +15,3 @@ ranked_selector(bp, md)
 this is a very internal function.  Users should never see this.
 }
 \keyword{internal}
-

@@ -20,4 +20,3 @@ Does not select markers that are within min_dist base pairs
 of a previously selected marker.
 }
 \keyword{internal}
-

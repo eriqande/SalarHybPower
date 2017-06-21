@@ -20,4 +20,3 @@ This will create F1's between
 the A and the B group.
 }
 \keyword{internal}
-

@@ -16,4 +16,3 @@ that have been dplyr::bind_rows()-ed together.}
 Takes care of the preamble and everthing.
 }
 \keyword{internal}
-

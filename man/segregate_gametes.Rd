@@ -17,4 +17,3 @@ By default this is set to 0.01 (i.e. a centi-Morgan).}
 Used internally.
 }
 \keyword{internal}
-
