@@ -4,8 +4,8 @@
 \alias{create_hybrid_dataset}
 \title{Create a simulated data set for newhybrids using dplyr::selected/ranked markers}
 \usage{
-create_hybrid_dataset(SAR, wild_pop, hyb_cat, L, dir = "hyb_dir",
-  file_name = "nh_data.txt")
+create_hybrid_dataset(SAR, wild_pop, wild_ref_pop = NULL, hyb_cat, L,
+  dir = "hyb_dir", file_name = "nh_data.txt")
 }
 \arguments{
 \item{SAR}{the output of split_and_rank()}
@@ -14,6 +14,15 @@ create_hybrid_dataset(SAR, wild_pop, hyb_cat, L, dir = "hyb_dir",
 as all being from the same population if they are included together.  This is not a 
 problem for F1's, but it is likely unrealistic for F2s and backcrosses. Unless the 
 F1 hybrids have no site fidelity (i.e. they stray freely...)}
+
+\item{wild_ref_pop}{a vector of the names of the populations of wild fish from
+which to include the training individuals as reference fish with the Z option. 
+A typical use would be to set wild_ref_pop to the same as wild_pop so that the wild
+reference individuals are only from the specific population that you are testing.
+If this is left as NULL (the default), then training individuals from all the populations
+are included as reference individuals using the z option.  If you want to include no wild
+fish with the Z option, just pass to this variable a population name that does not exist like
+"NO_POPS_NAMED_THIS!".}
 
 \item{hyb_cat}{the hybrid category desired}
 

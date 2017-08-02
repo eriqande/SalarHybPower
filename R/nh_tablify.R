@@ -8,6 +8,7 @@
 #' @param opt_str  The options string to be added to each individual (like "z0s")
 #' @param id_prepend this string will be prepended to the fish id (i.e. use it for "train_", or "test_")
 #' @keywords internal
+#' @export
 nh_tablify <- function(D, V, opt_str = "", id_prepend = "") {
   D1 <- D %>%
     dplyr::filter(variant %in% V)

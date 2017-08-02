@@ -1,0 +1,266 @@
+---
+title: "Making Multiple Data Sets"
+output: 
+  html_notebook:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+# set the working directory always to the project directory (one level up)
+knitr::opts_knit$set(root.dir = normalizePath(rprojroot::find_rstudio_root_file())) 
+```
+
+
+## Intro/Overview
+
+Just going to show how to create lots of data sets that can then be run through new hybrids.
+We create our own nomenclature so that the directory name tells us about the simulation.  In this 
+instance, we are going to restrict the reference (option-Z) individuals to be the training individuals
+from the farmed groups, and the wild training individual _only from the population being simulated_.
+
+
+
+```{r}
+library(tidyverse)
+library(stringr)
+library(SalarHybPower)
+```
+
+We also want to have some example data.  We will just use the Nova Scotia data. But we will
+call this dat:
+```{r}
+dat <- readRDS("intermediates/01/tidy-west.rds") %>%
+  mutate(pop = str_sub(id, 1, 3),
+         group = ifelse(pop == "AQU" | pop == "WLN", "farmed", "wild"))
+```
+
+First, count how many individuals we have from each wild population:
+```{r}
+dat %>%
+  group_by(pop) %>%
+  summarize(num = n_distinct(id))
+```
+
+This means that if we are doing F2's for LHR we will only be able to make 4 or 5 per time,
+and for backcrosses, we will only get about 4 per data set out of them.  OK.  Well, let us 
+not worry about the number of individuals we get from each population.  Let's just do SPLITS 
+different splits of the data into training and holdout...
+
+
+Set up some info for the sims:
+```{r}
+SPLITS <- 3 # the number of times to split the data and rank markers
+LOCS <- c(48, 144,  192, 480)  # number of loci  Just do a smaller number here
+POPLIST <- c("BDN", "CNR", "GRR", "LHR", "LPR")  # names of wild populations
+HYB_CATS <- c("PureW", "PureF", "F1", "F2", "BX")
+```
+
+Then just cycle over things and do it.  This is different than 07 by setting the 
+`wild_ref_pop` variable to `pop`.  
+```{r, eval=FALSE}
+main_out_dir <- "pop_specific_nh_reps_directory"
+dir.create(main_out_dir)
+set.seed(555)
+for (s in 1:SPLITS) {
+  SAR <- split_and_rank(dat)
+  for (pop in POPLIST) {
+    for (hc in HYB_CATS) {
+      for (locs in LOCS) {
+        dirname <- paste(s,pop,hc,locs, sep = "_")
+        create_hybrid_dataset(SAR = SAR, wild_pop = pop, wild_ref_pop = pop, hyb_cat = hc, L = locs, 
+                              dir = file.path(main_out_dir, dirname))
+      }
+    }
+  }
+  
+}
+
+```
+
+That takes a few minutes and creates a large number of directories, (like 525 or so), each with a single simulated data set in it.  
+The directories are named like this: `1_GRR_PureF_480`  which denotes:
+
+- Split = 1
+- Population = GRR
+- Simulated hybrid category = Pure Farmed
+- Number of loci = 480
+
+
+
+
+Now I just need to run NewHybrids over each like this:
+```sh
+~/Documents/git-repos/newhybrids/newhybs -d nh_data.txt -g P0 1 0 0 -g p1 0 0 1 -g F1 0 1 0 -g F2 .25 .5 .25 -g BX0 .5 .5 0 -g BX1 0 .5 .5 --pi-prior fixed  1 1 1 1 1 1
+```
+
+We will do that using the GNU parallel script.
+
+## Creating a GNU parallel script
+
+We could use the `parallel` R package, but I have had better success using GNU parallel -- a Perl script.  I have included it in the 
+`bin` directory in the repo.
+
+We basically need to write a series of shell commands, each one launching newhybrids on a different data set.
+
+We can use R to write those out.  Note that this all assumes that the `nh_reps_directory` is in the top level
+of the repository, and that the command to run parallel will be given in that nh_reps_directory.
+Note that it is imporant to divert stderr to a newhybs_stderr file so we can search for cases
+that had underflow issues.  I am going to do 100 burn in and 500 sweeps, cuz we can do short runs
+when we are working with having some indivs of known origin.
+```{r}
+comms <- lapply(dir("pop_specific_nh_reps_directory"), function(x) {
+  paste0("echo \"Starting ", 
+         x, 
+         " at $(date)\"; cd ", 
+         x, 
+         "; ../../bin/newhybs -d nh_data.txt -g P0 1 0 0 -g p1 0 0 1 -g F1 0 1 0 -g F2 .25 .5 .25 -g BX0 .5 .5 0 -g BX1 0 .5 .5 --pi-prior fixed  1 1 1 1 1 1 --no-gui --burn-in 100 --num-sweeps 500 --seeds ",
+         paste(ceiling(runif(2, min = 100, max = 10000000)), collapse = " "), 
+         " > newhybs_stdout.txt 2> newhybs_stderr.txt; cd ..; echo \"Done with ", x, " at $(date)\"")
+})
+cat(unlist(comms), sep = "\n", file = "pop-spec-para-comms.txt")
+```
+
+I synced all that to our 24 core box and then put the runs on 22 cores:
+```sh
+2017-07-05 12:08 /pop_specific_nh_reps_directory/--% (master) pwd
+/Users/eriq/Documents/git-repos/SalarHybPower/pop_specific_nh_reps_directory
+
+# then put it on 22 cores:
+2017-07-05 12:09 /pop_specific_nh_reps_directory/--% (master) cat ../pop-spec-para-comms.txt | ../bin/parallel -P22 > ../BIG_LOG.txt &
+[1] 26671
+
+```
+
+When doing such short runs, this seems to take less than an hour...
+
+## Slurping up the output
+
+Since this is on the big machine at work, it will be easiest for me to grab
+the output using awk over ssh:
+```sh
+2017-07-05 12:21 /pop_specific_nh_reps_directory/--% (master) pwd
+/Users/eriq/Documents/git-repos/SalarHybPower/pop_specific_nh_reps_directory
+
+for i in *; do 
+  warn=$(wc -l $i/newhybs_stderr.txt | awk '{print $1}'); 
+  awk -v w=$warn -v i=$i 'NR>1 && !/train_/ {print i, w, $0}' $i/aa-PofZ.txt;
+done  > ../pop-spec3_splits_output.txt
+
+
+```
+Then I gzipped that and brought it over to the `outputs` folder in the repository (but which 
+I won't commit...).  And then I deleted the big simulation directory:
+```sh
+2017-07-05 12:24 /SalarHybPower/--% (master) rm -r pop_specific_nh_reps_directory/
+```
+
+## Reading in the output, and making a quick plot
+
+First, a job for readr:
+```{r}
+nh_output <- read_table2("outputs/pop-spec3_splits_output.txt.gz",   # requires readr 1.1.1
+                         col_names = c("sim", "warn", "idx", "iname", 
+                                       "pure_farmed", "pure_wild", "F1", "F2", "bx_farm", "bx_wild"))
+```
+
+Then separate some columns and then gather
+```{r}
+nh_sepped <- nh_output %>%
+  separate(col = sim, into = c("split", "pop", "true_hyb_cat", "num_loci"), sep = "_", convert = TRUE) %>%
+  separate(col = iname, into = c("drop", "s_idx"), sep = "_", convert = TRUE) %>% 
+  mutate(s_idx = paste("split", split, s_idx, sep = "_")) %>%
+  select(-drop) 
+
+
+```
+
+Really quickly, check which runs received warnings:
+```{r}
+nh_sepped %>%
+  filter(warn > 0)
+```
+
+None of them, cuz we never did as many as 1000 loci.
+
+Let's just filter out the ones that had warnings and gather it, and make a infferred_hyb_cat a
+factor so it comes out in a good order in the plots.
+```{r, eval=FALSE}
+nh_tidy <- nh_sepped %>% 
+  filter(warn == 0) %>% 
+  gather(key = "inferred_hyb_cat", value = "post_prob", pure_farmed:bx_wild) %>%
+  mutate(inferred_hyb_cat = factor(inferred_hyb_cat, levels = c("bx_wild", "bx_farm", "F2", "F1", "pure_wild", "pure_farmed")))
+
+# and save this
+saveRDS(nh_tidy, file = "outputs/pop_spec-3_splits_nh_tidy.rds", compress = "xz")
+```
+
+And now we should be able to plot it.
+```{r}
+# some colors that might work out better than ggplots defaults
+hc_colors <- c(
+  pure_farmed = rgb(152, 78, 163, maxColorValue = 255), # purple
+  pure_wild = rgb(77, 175, 74, maxColorValue = 255), # green
+  F1 = rgb(255, 255, 51, maxColorValue = 255),  # yellow
+  F2 = rgb(247, 129, 191, maxColorValue = 255), # pink
+  bx_wild = rgb(255, 127, 0, maxColorValue = 255),  # orange
+  bx_farm = rgb(228, 26, 28, maxColorValue = 255) # red
+)
+
+nh_tidy <- readRDS("outputs/pop_spec-3_splits_nh_tidy.rds")
+
+nh_list <- nh_tidy %>% 
+  split(., .$true_hyb_cat)
+
+gg_list <- lapply(nh_list, function(x) {
+  g <- ggplot(x, aes(x = s_idx, y = post_prob, fill = inferred_hyb_cat)) +
+    geom_col() +
+    facet_grid(num_loci ~ pop) +
+    scale_fill_manual(values = hc_colors)
+  
+  g
+})
+
+dump <- lapply(names(gg_list), function(n) {
+  ggsave(gg_list[[n]], 
+         filename = paste0("outputs/pop-spec-first_look_", n, ".pdf"),
+         width = 10, 
+         height = 6)})
+```
+
+That is cool.  But it would be more cool to be able to compare those things more directly.
+I think we can read the non-pop-specific output in and then stick them in together.
+```{r}
+non_spec <- readRDS("outputs/3_splits_nh_tidy.rds") %>%
+  filter(num_loci %in% LOCS)
+
+nh_combo <- list(spec_pop = nh_tidy,
+                 all_pop = non_spec) %>%
+  bind_rows(.id = "wild_ref_type")
+
+nh_combo_list <- nh_combo %>% 
+  split(., .$true_hyb_cat)
+
+gg_list2 <- lapply(nh_combo_list, function(x) {
+  g <- ggplot(x, aes(x = s_idx, y = post_prob, fill = inferred_hyb_cat)) +
+    geom_col() +
+    facet_grid(num_loci + wild_ref_type ~ pop) +
+    scale_fill_manual(values = hc_colors)
+  
+  g
+})
+
+dump <- lapply(names(gg_list2), function(n) {
+  ggsave(gg_list2[[n]], 
+         filename = paste0("outputs/spec-pop-ref-vs-all-ref", n, ".pdf"),
+         width = 10, 
+         height = 12)})
+
+```
+
+Using just the specific population for wild "Z" reference fish improves the identification 
+of truly wild fish for LPR (they are less likely to be identified as BX_wild fish.)  On the
+other hand, the PureFarmed fish are now more likely to be identified as BX_Farmed.  
+
+For some populations and some hybrid categories it looks like sometimes all_pop works better
+than the spec_pop version.  
+

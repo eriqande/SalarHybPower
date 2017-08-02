@@ -11,13 +11,21 @@
 #' as all being from the same population if they are included together.  This is not a 
 #' problem for F1's, but it is likely unrealistic for F2s and backcrosses. Unless the 
 #' F1 hybrids have no site fidelity (i.e. they stray freely...)
+#' @param wild_ref_pop a vector of the names of the populations of wild fish from
+#' which to include the training individuals as reference fish with the Z option. 
+#' A typical use would be to set wild_ref_pop to the same as wild_pop so that the wild
+#' reference individuals are only from the specific population that you are testing.
+#' If this is left as NULL (the default), then training individuals from all the populations
+#' are included as reference individuals using the z option.  If you want to include no wild
+#' fish with the Z option, just pass to this variable a population name that does not exist like
+#' "NO_POPS_NAMED_THIS!".
 #' @param hyb_cat the hybrid category desired 
 #' @param L the number of loci to choose
 #' @param dir the path of the directory to create to put the result into.  It will 
 #' write the result into a file called \code{file_name}.
 #' @param file_name the name of the output file.  Defaults to "nh_data.txt".
 #' @export
-create_hybrid_dataset <- function(SAR, wild_pop, hyb_cat, L, dir = "hyb_dir", file_name = "nh_data.txt") {
+create_hybrid_dataset <- function(SAR, wild_pop, wild_ref_pop = NULL, hyb_cat, L, dir = "hyb_dir", file_name = "nh_data.txt") {
   
   # Get the L markers. store their names in a vector called V (for variants)
   V <- SAR$ranked_markers %>%
@@ -32,13 +40,29 @@ create_hybrid_dataset <- function(SAR, wild_pop, hyb_cat, L, dir = "hyb_dir", fi
   
   # make the rows that the Train indivs will be in the newhybrids data set.
   # note that "farmed" will always be species 0. 
+  # We have the option of using all the wild training fish for the Z option, or
+  # only those from the same population as "wild_pop".  Note that if "wild_pop" is
+  # a vector, it just keeps all those 
+  if (is.null(wild_ref_pop)) {
+    wildZ <- Train %>%
+      dplyr::filter(group == "wild") %>%
+      nh_tablify(., V, opt_str = "z1s", id_prepend = "train_")
+  } else {
+    wz_tmp <- Train %>%
+      dplyr::filter(group == "wild" & (pop %in% wild_ref_pop) ) 
+    if (nrow(wz_tmp) == 0) {
+      wildZ <- NULL
+    } else {
+      wildZ <- wz_tmp %>%
+        nh_tablify(., V, opt_str = "z1s", id_prepend = "train_")
+    }
+  }
+  
   trainNH <- list(
     Train %>%
       dplyr::filter(group == "farmed") %>%
       nh_tablify(., V, opt_str = "z0s", id_prepend = "train_"),
-    Train %>%
-      dplyr::filter(group == "wild") %>%
-      nh_tablify(., V, opt_str = "z1s", id_prepend = "train_")
+    wildZ
   ) %>%
     dplyr::bind_rows()
   

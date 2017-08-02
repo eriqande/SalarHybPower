@@ -2,6 +2,7 @@
 
 export("%>%")
 export(create_hybrid_dataset)
+export(nh_tablify)
 export(plink2tidy)
 export(split_and_rank)
 importFrom(magrittr,"%>%")
