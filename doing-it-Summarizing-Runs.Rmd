@@ -1,0 +1,370 @@
+---
+title: "Summarizing the Runs"
+output: 
+  html_notebook:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+# set the working directory always to the project directory (one level up)
+knitr::opts_knit$set(root.dir = normalizePath(rprojroot::find_rstudio_root_file())) 
+```
+
+
+
+
+Let's do this with Newfoundland as that is all I have the simulations for yet.
+
+Let's slurp up the results, and let's make the names of the inferred and 
+true hyb cats the same
+```{r}
+library(tidyverse)
+library(viridis)
+
+# get replacements for the true_hyb_cat column
+thc <- c(
+  PureF = "pure_farmed",
+  PureW = "pure_wild",
+  F1 = "F1",
+  F2 = "F2",
+  BX = "bx_wild"
+)
+
+nf_res <- read_rds("outputs/NF_long_runs_tibble.rds") %>%
+  mutate(inferred_hyb_cat = as.character(inferred_hyb_cat),
+         true_hyb_cat = thc[true_hyb_cat])
+```
+
+
+
+
+# Verifying Accuracy and Efficiency Calculations
+
+Brendan threw done some good pipes and mutates and group_by()'s to compute the accuracy
+and efficiency for each population at different numbers of loci.  I just want to confirm 
+those results and see if we can do the same with a little `dplyr::do()` (since I just recently
+started using that...and it is wickedly powerful!)
+
+Our starting point for this will be the `nf_res` tibble, which are all the results
+after I standardized the hybrid categories, and made them all characters rather than
+factors (just like Brendan did in his first step!).  
+
+## Accuracy
+
+This is defined in the paper as "the proportion of an identified group 
+that truly belongs to that category".  We will say that individuals are inferred to be
+a certain category if their posterior for that category is maximal. And when we talk 
+about applying a posterior probability threshold, then the only way that makes sense is if you will not
+be assigning individuals to a category if their posterior probability is less than that
+threshold.  
+
+We filter the data set to just those inferred categories with maximal posterior probability:
+```{r}
+max_cats <- nf_res %>%
+  group_by(pop, split, true_hyb_cat, num_loci, idx) %>%
+  top_n(n = 1, wt = post_prob) %>%
+  ungroup()
+```
+
+Now, we want to get the fraction of these inferred categories that are correct
+for each value of post_prob from 0.5 to 1.0 in steps of 0.01. Of course, we want
+to make that calculation within each pop and inferred_hyb_cat and num_loci.
+(Note that we _don't_ group by true_hyb_cat, because we are interested in seeing
+how well we have done amongst all individuals inferred to be of a particular hybrid
+category.)
+
+Once again, this is a job for `dplyr::do()`. But we will want to write a function
+that returns a tibble for it.
+```{r}
+#' @param pp is the posterior prob
+#' @param ihc is the inferred hybrid category
+#' @param thc is the active ingredient in marijuana, but here also the "true hybrid category"
+accu_func <- function(pp, ihc, thc) {
+  crit_post_prob <- seq(0.5, 0.99, by = 0.01)  # crititcal posterior probs to compute for. Don't do 1.0...
+  accuracy <- sapply(crit_post_prob, function(x) {
+    mean((thc == ihc)[pp >= x])  # fraction of the individuals with a pp > the critical value that were inferred correctly
+  })
+  tibble(crit_post_prob = crit_post_prob,
+         accuracy = accuracy)
+}
+```
+
+Then, group by pop, inferred_hyb_cat, and num_loci and compute it.
+```{r}
+accu_df <- max_cats %>%
+  group_by(pop, inferred_hyb_cat, num_loci) %>%
+  dplyr::do(accu_func(pp = .$post_prob, 
+                      ihc = .$inferred_hyb_cat,
+                      thc = .$true_hyb_cat))
+```
+
+And we can plot those all at once on a single big page in a format kind of like what Brendan did:
+```{r, fig.width=5, fig.height=5}
+ggplot(accu_df, aes(x = crit_post_prob, y = accuracy, colour = inferred_hyb_cat)) +
+  geom_line() +
+  facet_grid(pop ~ num_loci)
+```
+
+I find it easier to look at and interpet if we color by number of loci and facet on 
+inferred hybrid category.
+```{r, fig.width=5, fig.height=5}
+
+ggplot(accu_df, aes(x = crit_post_prob, y = accuracy, colour = factor(num_loci))) +
+  geom_line() +
+  facet_grid(pop ~ inferred_hyb_cat)
+```
+
+## Efficiency
+
+Efficiency is defined in the paper as "the proportion of individuals in a group that were correctly identified".
+So, it should be the case that we will be grouping by the true hybrid category.  And we will need a
+function to compute the efficiency.  But what is interesting here, is that the fraction should
+drop off as the posterior prob threshold gets higher (because more individuals are being left 
+unassigned). 
+```{r}
+#' @param pp is the posterior prob
+#' @param ihc is the inferred hybrid category
+#' @param thc is the active ingredient in marijuana, but here also the "true hybrid category"
+effi_func <- function(pp, ihc, thc) {
+  crit_post_prob <- seq(0.5, 0.99, by = 0.01)  # critical posterior probs to compute for. Don't do 1.0...
+  efficiency <- sapply(crit_post_prob, function(x) {
+    mean(thc == ihc & pp >= x)  # fraction of _all_ individuals that had pp > crit and thc == ihc 
+  })
+  tibble(crit_post_prob = crit_post_prob,
+         efficiency = efficiency)
+}
+```
+
+Now, go for it:
+```{r}
+effi_df <- max_cats %>%
+  group_by(pop, true_hyb_cat, num_loci) %>%
+  dplyr::do(effi_func(pp = .$post_prob, 
+                      ihc = .$inferred_hyb_cat,
+                      thc = .$true_hyb_cat))
+```
+
+And plot that dude:
+```{r, fig.width=5, fig.height=5}
+ggplot(effi_df, aes(x = crit_post_prob, y = efficiency, colour = factor(num_loci))) +
+  geom_line() +
+  facet_grid(pop ~ true_hyb_cat)
+```
+
+
+### Why different than Brendan's result?
+
+Comparing these curves to what Brendan got, it seems that there is a discrepancy.  I haven't looked 
+entirely through Brendan's code to figure out why that is yet.  But I think it might be around this part
+(with my comments)
+```{r eval=FALSE}
+CNR_0.5_Res <- CNR_0.5_tempAccuracyLong %>% 
+  group_by(num_loci, true_hyb_cat, PofZ) %>%  # <-- For accuracy, I think you really want to group by inferred_hyb_cat
+  summarise(temp = sum(Correct == "Yes") / length(Correct)) %>%  # <-- length(Correct) is all of them, not just those with post_prob > critical.  So the denominator is too big.
+  ungroup() %>% 
+  data.frame
+```
+
+
+## Just inferring hybrid or non-hybrid...
+
+This is worth looking at.  We will infer each individual to just be hybrid or non-hybrid and then 
+look at the accuracy of those.  We do that with a summarise, then take the
+max posterior of it.
+```{r}
+
+nf_squashed_cats <- nf_res %>%
+  mutate(inferred_hyb_v_non_hyb = ifelse(stringr::str_detect(inferred_hyb_cat, "pure"), "pure", "hybrid"),
+         actual_hyb_v_non_hyb = ifelse(stringr::str_detect(true_hyb_cat, "pure"), "pure", "hybrid")) %>%
+  group_by(pop, split, num_loci, true_hyb_cat, idx, actual_hyb_v_non_hyb, inferred_hyb_v_non_hyb) %>%
+  summarise(post_prob = sum(post_prob)) %>%
+  top_n(n = 1, post_prob) %>% # "assign" them to hyb or non-hyb category
+  ungroup()
+
+```
+
+And now we can compute accuracy and efficiency.
+
+### Accuracy
+```{r}
+squashed_accu_df <- nf_squashed_cats %>%
+  group_by(pop, inferred_hyb_v_non_hyb, num_loci) %>%
+  dplyr::do(accu_func(pp = .$post_prob, 
+                      ihc = .$inferred_hyb_v_non_hyb,
+                      thc = .$actual_hyb_v_non_hyb))
+```
+Plot it:
+```{r, fig.width=5, fig.height=5}
+
+ggplot(squashed_accu_df, aes(x = crit_post_prob, y = accuracy, colour = factor(num_loci))) +
+  geom_line() +
+  facet_grid(pop ~ inferred_hyb_v_non_hyb)
+```
+
+### Efficiency
+
+```{r}
+squashed_effi_df <- nf_squashed_cats %>%
+  group_by(pop, true_hyb_cat, num_loci) %>%
+  dplyr::do(effi_func(pp = .$post_prob, 
+                      ihc = .$inferred_hyb_v_non_hyb,
+                      thc = .$actual_hyb_v_non_hyb))
+```
+Plot it:
+```{r, fig.width=5, fig.height=5}
+
+ggplot(squashed_effi_df, aes(x = crit_post_prob, y = efficiency, colour = factor(num_loci))) +
+  geom_line() +
+  facet_grid(pop ~ true_hyb_cat)
+```
+
+# ROC Curves
+
+I have a harder time interpreting the "power = accuracy *  efficiency" summary than
+I do looking at the receiver operating characteristic (ROC) curve.
+The ROC curve is another summary
+that includes both the type 1 and type 2 errors and which I find easier to get my head
+around, so I will see what those look like in this case.
+
+On another note, the "accuracy" statistic is hard to interpret because it really
+depends on what other types of hybrid categories are "in the mix."  For example, if you
+are looking at the "accuracy" of inferred F2 individuals, that quantity depends on the
+relative amounts of F2, F1, and backcross individuals.  For example, if your simulated data
+set includes 10 F2s, 10000 F1s, and 10000 bx-s, then the accuracy for inferred F2's might
+look really bad if it is hard to distinguish F1s from F2s, etc.  On the other hand, 
+if your simulated data includes 10 F2s and 10 PureWilds, then you will come out with 
+a higher value for accuracy.  One of the things I like about the ROC curves is that they
+show you a type 1 and type 2 error rate summary between each category. 
+
+
+I think the ROC curve should be pretty easy to compute, using a sequence of scaled 
+likelihoods from 0 to 1 in steps of 0.005, say.
+One important point to keep in mind is that the false positive rate
+must be a function of the true hybrid category.  We will honor that by
+making a multipanel plot, creating ROC curves for all the different kinds of
+situations (i.e. inferring F2's when the truth is BX, inferring F2's when the 
+truth is Pure Wild, etc).
+
+We can compute these ROC curves in the tidyverse by throwing down some `dplyr::do()`
+along with the `ecdf()` function.  
+
+```{r}
+options(dplyr.show_progress = FALSE)
+pos_rates <- nf_res %>%
+  group_by(pop, true_hyb_cat, inferred_hyb_cat, num_loci) %>% 
+  dplyr::do(
+    tibble(
+      pthresh = seq(0, 1, by = 0.005), 
+      pgreater = 1 - ecdf(.$post_prob)(seq(0, 1, by = 0.005))
+      )
+    ) %>%
+  ungroup()
+```
+
+Now, all we need to do is a quick left join to get ready to plot some of these:
+```{r}
+rocdf <- pos_rates %>%
+  filter(true_hyb_cat == inferred_hyb_cat) %>%
+  rename(true_pos_rate = pgreater,
+         focal_hyb_cat = true_hyb_cat) %>%
+  select(-inferred_hyb_cat) %>%
+  left_join(., pos_rates) %>%
+  filter(focal_hyb_cat != true_hyb_cat) %>%  # to give us an empty plot rather than a y = x line on the diagonal
+  filter(focal_hyb_cat == inferred_hyb_cat) %>% # these are the values we care about
+  rename(false_pos_rate = pgreater) %>%
+  mutate(num_loci = factor(num_loci)) %>%
+  mutate(true_hyb_cat = paste("true", true_hyb_cat),
+         focal_hyb_cat = paste("infd", focal_hyb_cat))
+  
+```
+
+Let's see how these things plot out:
+```{r}
+dump <- lapply(unique(rocdf$pop), function(x) {
+  g <- ggplot(rocdf %>% filter(pop == x), aes(x = false_pos_rate, y = true_pos_rate, colour = num_loci)) +
+    geom_line() +
+    facet_grid(true_hyb_cat ~ focal_hyb_cat) + 
+    ggtitle(x) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+  
+  ggsave(g, filename = paste0("outputs/roc_NF_", x, ".pdf"))
+})
+```
+
+I made PDFs of all of those, but here is how it looks for BDN:
+```{r bdn_png1, fig.width=5, fig.height=5}
+ggplot(rocdf %>% filter(pop == "BDN"), aes(x = false_pos_rate, y = true_pos_rate, colour = num_loci)) +
+    geom_line() +
+    facet_grid(true_hyb_cat ~ focal_hyb_cat) + 
+    ggtitle("BDN") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+```
+I saved these in the files `roc_NF_XXX.pdf`.  Note that "infd" means "inferred" in the
+legend, and "true" is referring to the true hybrid categories.
+
+
+The way to interpret these is this: when you are looking at the columns
+you are assessing what the true positive rate is when inferring the hybrid category that is
+listed at the top of the column _as a function of_ the false positive rate for the 
+hybrid category that is listed to the right.  So, for example, if you are trying 
+to identify F2s in the BDN population, and you have 48 loci, then when you set your
+F2 posterior probability to $T$, such that 75% of the F2s you encounter are expected to have
+a posterior $\geq T$, you expect that 25% of bx_wild fish will also have an
+F2 posterior $\geq T$.  This information can be gleaned from the graph in the 
+first row ("true bx_wild") and the third column ("infd F2"). 
+
+Or, if we were to look at the results for LPR we would find that when things are
+truly pure_wild ("true pure_wild"), and you are inferring bx_wilds ("infd bx_wild"),
+things are not looking so good.  There is not cutoff $T$ that makes us unlikely to
+incorrectly infer that pure wild fish are bx_wild fish.  We saw that already in the 
+preliminary results I sent a while ago.
+
+That is pretty cool, but if we wanted to also try to show what the scaled likelihood
+cutoff levels are, we can do that too.
+```{r}
+dump <- lapply(unique(rocdf$pop), function(x) {
+  g <- ggplot(rocdf %>% filter(pop == x), aes(x = false_pos_rate, y = true_pos_rate, colour = pthresh,
+                                              group = num_loci)) +
+    geom_line() +
+    facet_grid(true_hyb_cat ~ focal_hyb_cat) + 
+    ggtitle(x) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+    scale_colour_viridis()
+  
+  ggsave(g, filename = paste0("outputs/roc_NF_pcolor", x, ".pdf"))
+})
+```
+
+These are saved in the files, "roc_NF_pcolorXXX.pdf". Here is what it looks like
+for BDN:
+```{r bdn_png2, fig.width=5, fig.height=5}
+ ggplot(rocdf %>% filter(pop == "BDN"), aes(x = false_pos_rate, y = true_pos_rate, colour = pthresh,
+                                              group = num_loci)) +
+    geom_line() +
+    facet_grid(true_hyb_cat ~ focal_hyb_cat) + 
+    ggtitle("BDN") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+    scale_colour_viridis()
+```
+
+What we see there is that with 48 loci, if you want a true positive rate of
+75% for F2s, you are going to have to use a posterior probability cutoff that looks
+to be around 30%, which makes it clear why you'd suffer pretty high false positive
+rates from the bx_wild category.  
+
+## Hybrid vs non-hybrid
+
+In addition to the above, it would be nice to see for each true hybrid category, how well one
+can do with just declaring a fish a hybrid (of some sort) or not.  One would think this shouldn't be too hard to 
+get at.  We just want to collapse the inferred hybrid category down to hybrid or non-hybrid.  But then
+you don't want to squash the correct categories down to that.  It ends up being a little harder to do
+that.
+
+Fortunately, what can be seen from these ROC curve plots is that there is almost no chance that a 
+pure fish of either wild or farmed origin will be misidentified as F1 or F2 in any population.  In GRR and LPR
+is there some appreciable difficulty with incorrectly identifying pure individuals as bx_wilds. And, in LPR,
+that can't really be controlled by a suitable cutoff.  We saw this in the preliminary runs I did too.
+Perhaps that population has experienced some previous introgression?
+
+
