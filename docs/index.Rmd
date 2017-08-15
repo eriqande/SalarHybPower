@@ -28,9 +28,17 @@ Have fun. Questions to eric.anderson@noaa.gov
 
 - [dev-01-initial-data-maneuvers.nb.html](./dev-01-initial-data-maneuvers.nb.html) --- How I went about making a sex-averaged linkage map and "sprinkling" unmapped markers into it.  I was originally thinking I was going to write this to PLINK format, but discovered I could do things better and just as quickly in a tidy format.
 
+
+## Actually doing the analyses for the paper
+
+- [doing-it-01-big-runs-newfoundland.nb.html](./doing-it-01-big-runs-newfoundland.nb.html) --- A notebook showing the steps taken to actually to the whole big run for the Newfoundland data set.
+- [doing-it-summarizing-newfoundland-big-runs.nb.html](./doing-it-summarizing-newfoundland-big-runs.nb.html) --- Summarizing
+the Newfoundland runs. Computing accuracy and efficiency and also computing ROC curves.
+
 ## Various steps and functions in SalarHybPower
 
-Some notebooks I put together while developing SalarHybPower.
+Some notebooks I put together while developing SalarHybPower for those that want
+to know the gory details.
 
 - [dev-02-selecting-individuals-and-loci.nb.html](./dev-02-selecting-individuals-and-loci.nb.html) --- How the training and test data sets are formed and the ranking criterion used for loci.
 - [dev-03-utilities-for-making-newhybs-files.nb.html](./dev-03-utilities-for-making-newhybs-files.nb.html) --- An overview of a few helpful functions to quickly write out newhybrids files.
@@ -45,11 +53,4 @@ Some notebooks I put together while developing SalarHybPower.
 - [dev-07-make-multiple-data-sets.nb.html](./dev-07-make-multiple-data-sets.nb.html) --- How to make multiple simulated data sets.
 - [dev-08-make-multiple-data-sets-pop-specific-reference.nb.html](./dev-08-make-multiple-data-sets-pop-specific-reference.nb.html) --- Experimenting with using as a reference data set (with the z option in newhybrids) only those
 training individuals that were from the same wild population that was being tested.  This is not how we ended up doing things in the Salar SNP Panel paper.
-
-## Actually doing the analyses for the paper
-
-- [doing-it-01-big-runs-newfoundland.nb.html](./doing-it-01-big-runs-newfoundland.nb.html) --- A notebook showing the steps taken to actually to the whole big run for the Newfoundland data set.
-- [doing-it-summarizing-newfoundland-big-runs.nb.html](./doing-it-summarizing-newfoundland-big-runs.nb.html) --- Summarizing
-the Newfoundland runs. Computing accuracy and efficiency and also computing ROC curves.
-
 
