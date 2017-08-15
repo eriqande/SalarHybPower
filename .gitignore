@@ -2,7 +2,6 @@
 .Rhistory
 .RData
 .Ruserdata
-
 nh_reps_directory
 para-comms.txt
 hyb_dir
@@ -10,3 +9,11 @@ hyb_dir
 scratch/*
 data/processed
 .DS_Store
+3_splits_output.txt.gz
+BIG_LOG.txt
+NF-long-run-para-comms.txt
+NF_long_run_BIG_LOG.txt
+NF_run_script.sh
+nohup.out
+pop-spec-para-comms.txt
+the_paper
