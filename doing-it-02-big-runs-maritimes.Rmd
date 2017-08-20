@@ -1,0 +1,234 @@
+---
+title: "Maritimes Big Runs"
+output: 
+  html_notebook:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+# set the working directory always to the project directory (one level up)
+knitr::opts_knit$set(root.dir = normalizePath(rprojroot::find_rstudio_root_file())) 
+```
+
+
+## Intro/Overview
+
+Going to show how I cranked through all the different replicates for Maritimes.
+We are, in this case, using all the training individuals from wild and farmed as 
+reference samples (using the Z option) in NewHybrids.
+
+We create our own nomenclature so that the directory name tells us about the simulation.
+
+```{r}
+library(tidyverse)
+library(stringr)
+library(SalarHybPower)
+```
+
+Here we use the Maritimes data. But we will
+call this `dat`.  Please read `dev-01-initial-data-maneuvers.Rmd` to see
+how we processed the data to this point. 
+```{r}
+dat <- readRDS("intermediates/01/tidy-ns.rds") %>%
+  mutate(pop = str_sub(id, 1, 3),
+         group = ifelse(pop == "AQU" | pop == "WLN", "farmed", "wild"))
+```
+
+First, count how many individuals we have from each wild population:
+```{r}
+dat %>%
+  group_by(pop) %>%
+  summarize(num = n_distinct(id))
+```
+
+This means that if we are doing F2's for LAH and MED we will only be able to make 5 per time,
+and for backcrosses, we will only get about 4 per data set out of them.  OK.  Well, let us 
+not worry about the number of individuals we get from each population.  Let's just do SPLITS 
+different splits of the data into training and holdout...
+
+
+Set up some info for the sims:
+```{r}
+SPLITS <- 100 # the number of times to split the data and rank markers.  100 will give us a minimum of 500 simulated BXs for the smallest sample pop
+LOCS <- c(48, 96, 144, 192, 240, 480, 720, 1000)  # number of loci.  Some bigger numbers of loci for the Maritimes
+POPLIST <- c("BSR", "GAK", "LAH", "MED", "SMA", "STW", "TOB")  # names of wild populations
+HYB_CATS <- c("PureW", "PureF", "F1", "F2", "BX")
+```
+
+Then just cycle over things and do it
+```{r, eval=FALSE}
+main_out_dir <- "/tmp/MAR_long_runs"
+dir.create(main_out_dir)
+set.seed(777)
+for (s in 1:SPLITS) {
+  message("Starting split number ", s)
+  SAR <- split_and_rank(dat)
+  for (pop in POPLIST) {
+    for (hc in HYB_CATS) {
+      for (locs in LOCS) {
+        dirname <- paste(s,pop,hc,locs, sep = "_")
+        create_hybrid_dataset(SAR = SAR, wild_pop = pop, hyb_cat = hc, L = locs, 
+                              dir = file.path(main_out_dir, dirname))
+      }
+    }
+  }
+  
+}
+
+```
+
+That takes about four hours and creates about 6.4 Gb of output in about 28000 directories, each with a single simulated data set in it.  
+
+The directories are named like this: `1_BSR_PureF_480`  which denotes:
+
+- Split = 1
+- Population = GRR
+- Simulated hybrid category = Pure Farmed
+- Number of loci = 480
+
+
+
+
+Now I just need to run NewHybrids over each like this:
+```sh
+~/Documents/git-repos/newhybrids/newhybs -d nh_data.txt -g P0 1 0 0 -g p1 0 0 1 -g F1 0 1 0 -g F2 .25 .5 .25 -g BX0 .5 .5 0 -g BX1 0 .5 .5 --pi-prior fixed  1 1 1 1 1 1
+```
+
+We will do that using the GNU parallel script.
+
+## Creating a GNU parallel script
+
+We could use the `parallel` R package, but I have had better success using GNU parallel -- a Perl script.  I have included it in the 
+`bin` directory in the repo.
+
+We basically need to write a series of shell commands, each one launching newhybrids on a different data set.
+
+We can use R to write those out.  Note that this all assumes that the `nh_reps_directory` is in the top level
+of the repository, and that the command to run parallel will be given in that nh_reps_directory.
+Note that it is imporant to divert stderr to a newhybs_stderr file so we can search for cases
+that had underflow issues.  I am going to do 100 burn in and 500 sweeps, cuz we can do short runs
+when we are working with having some indivs of known origin.
+```{r}
+# first, get the absolute path of NEWHYBS to pass into the parallel script
+NEWHYBS <- normalizePath("bin/newhybs")
+
+# set the seed again for reproducibility
+set.seed(100)
+
+comms <- lapply(dir(main_out_dir, full.names = TRUE), function(x) {
+  paste0("echo \"Starting ", 
+         x, 
+         " at $(date)\"; cd ", 
+         x, 
+         "; ",
+         NEWHYBS,
+         " -d nh_data.txt -g P0 1 0 0 -g p1 0 0 1 -g F1 0 1 0 -g F2 .25 .5 .25 -g BX0 .5 .5 0 -g BX1 0 .5 .5 --pi-prior fixed  1 1 1 1 1 1 --no-gui --burn-in 200 --num-sweeps 500 --seeds ",
+         paste(ceiling(runif(2, min = 100, max = 10000000)), collapse = " "), 
+         " > newhybs_stdout.txt 2> newhybs_stderr.txt; cd ..; echo \"Done with ", x, " at $(date)\"")
+})
+cat(unlist(comms), sep = "\n", file = "MAR-long-run-para-comms.txt")
+```
+
+I synced all that to our 24 core box and then put the runs on 22 cores.  I made a script 
+called `MAR-run-script.sh` in the top level of the repo. Its contents look like:
+```sh
+cat MAR-long-run-para-comms.txt | ./bin/parallel -P22 > MAR_long_run_BIG_LOG.txt
+```
+I can run that under nohup:
+```sh
+2017-08-02 10:55 /SalarHybPower/--% (master) pwd
+/Users/eriq/Documents/git-repos/SalarHybPower
+
+2017-08-02 11:00 /SalarHybPower/--% (master) nohup MAR-run-script.sh &
+[1] 36403
+appending output to nohup.out
+```
+
+It only too 2.5 hours to get through that.  That was less time than it took
+to generate the data sets on my laptop.  Cool.  It does generate 63 Gb of
+output, total...but most of that we can ditch eventually.
+
+## Slurping up the output
+
+Since this is on the big machine at work, it will be easiest for me to grab
+the output using `awk` over `ssh`:
+```sh
+2017-08-20 13:50 /MAR_long_runs/--% pwd
+/tmp/MAR_long_runs
+
+for i in *; do 
+  warn=$(wc -l $i/newhybs_stderr.txt | awk '{print $1}'); 
+  awk -v w=$warn -v i=$i 'NR>1 && !/train_/ {print i, w, $0}' $i/aa-PofZ.txt;
+done  > ../MAR_long_output.txt
+
+```
+That took a couple minutes.
+Then I gzipped that and brought it over to the `outputs` folder in the repository
+in `/outputs/MAR_long_output.txt.gz`. 
+
+## Reading in the output, and making a data frame for Brendan
+
+First, a job for readr:
+```{r}
+mar_output <- read_table2("outputs/MAR_long_output.txt.gz",   # requires readr 1.1.1
+                         col_names = c("sim", "warn", "idx", "iname", 
+                                       "pure_farmed", "pure_wild", "F1", "F2", "bx_farm", "bx_wild"))
+```
+
+Then separate some columns
+```{r}
+mar_sepped <- mar_output %>%
+  separate(col = sim, into = c("split", "pop", "true_hyb_cat", "num_loci"), sep = "_", convert = TRUE) %>%
+  separate(col = iname, into = c("drop", "s_idx"), sep = "_", convert = TRUE) %>% 
+  mutate(s_idx = paste("split", split, s_idx, sep = "_")) %>%
+  select(-drop) 
+
+
+```
+
+Really quickly, check which runs received warnings...A good handful of them.  OK. 
+```{r}
+mar_sepped %>%
+  filter(warn > 0)
+```
+
+
+We just toss out the results from any runs that had warnings (those were from
+that underflow issue in newhybrids).  Let's gather it and make inferred_hyb_cat a
+factor so it comes out in a good order in the plots.
+```{r}
+mar_tidy <- mar_sepped %>% 
+  filter(warn == 0) %>% 
+  gather(key = "inferred_hyb_cat", value = "post_prob", pure_farmed:bx_wild) %>%
+  mutate(inferred_hyb_cat = factor(inferred_hyb_cat, levels = c("bx_wild", "bx_farm", "F2", "F1", "pure_wild", "pure_farmed"))) %>%
+  arrange(split, pop, num_loci, true_hyb_cat, idx)
+```
+
+And that is it.  Almost 1.4 million rows of data. The columns are:
+
+- `split` --- a number between 1 and 100.  This is which "split" the results come from.
+A split is a separate splitting of the data randomly into a training set and a test
+set.  For the smaller samples, the only way to simulate enough individuals without
+replacement is by doing lots of different splits.  Which is why we have that many.
+- `pop` --- the name of the population that the genes we sampled came from.
+- `true_hyb_cat` --- the true hybrid category of the individual.  This will be one of
+"BX", "F1", "F2", "PureF", "PureW".  BX is a backcross-to-wild.  PureF is pure farmed.
+PureW is pure wild.
+- `num_loci` --- is the number of loci.
+- `warn` --- the number of lines in the standard error output for newhybrids.  This is 0 for everyone,
+'cuz newhybds didn't throw any complaints.
+- `idx` --- this is the number the fish got in the newhybrids data set.  Probably won't be used.
+- `s_idx` --- a different identifier for the fish.  Counting from 1.  Not unique.  Not all that useful.
+- `inferred_hyb_cat` --- the hybrid category for which the posterior prob in the next column is computed.
+This is a factor with levels = `c("bx_wild", "bx_farm", "F2", "F1", "pure_wild", "pure_farmed")`.  For some
+reason, I deemed that a good order for making the plots I previously made...
+- `post_prob` --- the posterior prob for each simulated individual for the `inferred_hyb_cat`.
+
+So, let's save that and send it to Brendan.
+
+```{r}
+saveRDS(mar_tidy, file = "outputs/MAR_long_runs_tibble.rds", compress = "xz")
+```
+
+
