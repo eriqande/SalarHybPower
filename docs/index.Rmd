@@ -34,7 +34,7 @@ Have fun. Questions to eric.anderson@noaa.gov
 - [doing-it-01-big-runs-newfoundland.nb.html](./doing-it-01-big-runs-newfoundland.nb.html) --- A notebook showing the steps taken to actually to the whole big run for the Newfoundland data set.
 - [doing-it-summarizing-newfoundland-big-runs.nb.html](./doing-it-summarizing-newfoundland-big-runs.nb.html) --- Summarizing
 the Newfoundland runs. Computing accuracy and efficiency and also computing ROC curves.
-- [doing-it-01-big-runs-maritimes.nb.html](./doing-it-01-big-runs-maritimes.nb.html) --- A notebook showing the steps taken to actually to the whole big run for the Maritimes data set.
+- [doing-it-02-big-runs-maritimes.nb.html](./doing-it-02-big-runs-maritimes.nb.html) --- A notebook showing the steps taken to actually to the whole big run for the Maritimes data set.
 - [doing-it-summarizing-maritimes-big-runs.nb.html](./doing-it-summarizing-maritimes-big-runs.nb.html) --- Summarizing
 the Maritimes runs. Computing accuracy and efficiency and also computing ROC curves.
 
